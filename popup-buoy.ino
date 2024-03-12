@@ -231,23 +231,7 @@ void setup() {
       DateTime time = rtcExt.now();
       writeLogFile(time.timestamp(DateTime::TIMESTAMP_FULL));
     }
-  //------- WIFI CONNECTION SETUP---------------------------------------------------------------------------
-    if (currentState == 2) { 
-      SerialPrintDebug("WIFI SETUP\n  Connecting to: ");
-      SerialPrintDebugln(WIFI_SSID2);
-      WiFi.begin(WIFI_SSID2, WIFI_PASS2);
 
-      SerialPrintDebugln("Connecting Wifi...");
-      while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        SerialPrintDebug(".");
-      }
-      SerialPrintDebug("    IP address: ");
-      SerialPrintDebugln(WiFi.localIP());
-
-      DateTime time = rtcExt.now();
-      writeLogFile(time.timestamp(DateTime::TIMESTAMP_FULL));
-    }
   //------- TIME UPDATE FROM UDP SERVER --------------------------------------------------------------------
     if (currentState == 0) {
       //sincronise time from NTP server
@@ -261,21 +245,7 @@ void setup() {
       SerialPrintDebug("time changed in RTC DS3231. current time:");
       SerialPrintDebugln(date);
     }
-  //------- FTP CONNECTION SETUP----------------------------------------------------------------------------
-    if (currentState == 2) {
-      #ifdef FTP_SERVER_PRESENT
-        SerialPrintDebugln("FTP SETUP\n Connecting to");
-        ftp.OpenConnection();
-        SerialPrintDebugln("FTP Connection -- DONE");
-        //check if connection has been established     //TO MODIFY ADD BOOLEAN MEMORY TO KNOW IF IT HAS BEEN CONNECTED ONCE
 
-        if (ftp.isConnected()) {
-          digitalWrite(LED_R, HIGH);
-        } else {
-          digitalWrite(LED_R, LOW);
-        }
-      #endif
-    }
   //------- SD CARD SETUP ----------------------------------------------------------------------------------
     if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5) {
       SerialPrintDebugln("SD INFO");
@@ -368,7 +338,7 @@ void setup() {
 //------- MAIN LOOP --------------------------------------------------------------------------------------
 void loop() {
 
-  writeLogFile("-----------------//Rebooting\\--------------------- ");
+  writeLogFile("-----------------//Rebooting\\\\--------------------- ");
 
   // read push buttons
   pushButtonRefresh(PBState);
@@ -461,25 +431,28 @@ void loop() {
       break;
 
     case 2:  //Pre-Launch (deep sea routines)
-      digitalWrite(LED_G, HIGH);
       writeLogFile("State 2 - wakeup");
-      //1. Conect to Wifi - done in set up
-      //2. Connect to FTP server - done in set up
-      //3. create directory in SD
-      SDCreateEnterDirectory("/PopUpBuoy_1");
-      FTPchangedirectory("/PopUpBuoy_1");
-      obtainFile("/crab.jpg");
-      obtainFile("/crab2.jpg");
-      obtainFile("/crab3.jpg");
-      obtainFile("/crab4.jpg");
-      obtainFile("/crab5.jpg");
-      obtainFile("/datafile.txt");
-      // Disconnect from FTP
-      // Checksum of files
-      // Change state to 3
-      changeStateTo(3);
-      writeLogFile("State 2 - Finished deep sea phase, changing state to 3");
-      delay(10);
+      digitalWrite(LED_G, LOW);
+      digitalWrite(LED_Y, LOW);
+      digitalWrite(LED_R, LOW);
+      if (connectToRaspWiFi()) {
+    	  digitalWrite(LED_R, HIGH);
+    	  connectToFTP();
+    	  digitalWrite(LED_Y, HIGH);
+    	  downloadAllFilesFTP();
+    	  digitalWrite(LED_G, HIGH);
+    	  delay(1000);
+          writeLogFile("State 2 - Files downloaded");
+          changeStateTo(3); //Change state to 4 and save state in eeprom
+          writeLogFile("Changing to State 3");
+          SleepModeSequence(TIME_TO_SLEEP_STATE3h, TIME_TO_SLEEP_STATE3m, 0); //Enter Sleep Mode
+      }
+      else {
+          writeLogFile("State 2 - Release of buoy " +String(idBuoy)+ " failed! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
+          writeLogFile("State 2 - Not achieved release phase, keeping state 3");
+          SleepModeSequence(0, TIME_TO_SLEEP_STATE3errorm, 0); //Enter Sleep Mode
+      }
+
       break;
 
     case 3:  //Launch Sleep
@@ -1088,7 +1061,7 @@ bool connectToRaspWiFi() {
     return true;
   } else {
     SerialPrintDebugln("Not connected!");
-    String response = "Impossible to connect to Pop-Up server WiFi. Reason: " + getWiFiFailureReason(WiFi.status());
+    String response = "ERROR: Impossible to connect to Pop-Up server WiFi. Reason: " + getWiFiFailureReason(WiFi.status());
     writeLogFile(response);
     return false;
   }
@@ -1576,201 +1549,234 @@ void SendGPSMessage(int timeSending) {
 }
 //------- FUNCTIONS FOR FTP PROCESS -----------------------------------------------------------------------
 
-// ReadFile Example from ESP32 SD_MMC Library within Core\Libraries
-// Changed to also write the output to an FTP Stream
-void return_array_byref(char **client_folder_structure) {
 
-  *client_folder_structure = (char *)malloc(sizeof(char) * 8);  // allocate the size of the pointer array
+/*
+ * Downloads all files from the FTP to the SD card
+ */
+void downloadAllFilesFTP(){
+    char ftpDir[64];
 
-  (*client_folder_structure)[0] = 'A';
-  (*client_folder_structure)[1] = 'B';
-  (*client_folder_structure)[2] = 'C';
-  (*client_folder_structure)[3] = '\n';  // this is just a new line, does not end the string
-  (*client_folder_structure)[4] = '\0';  // null terminator is important!
+
+    sprintf(ftpDir, "/PopUpBuoy_%d", idBuoy);
+    SerialPrintDebug("Downloading data from ");
+    SerialPrintDebugln(ftpDir);
+    SerialPrintDebug("init FTP type A...");
+    ftp.InitFile("Type A");
+    delay(1000);
+    SerialPrintDebugln("done");
+
+    SerialPrintDebug("change FTP directory...");
+    ftp.ChangeWorkDir(ftpDir);
+    SerialPrintDebugln("done");
+    if (!SD.exists(ftpDir)) {
+      SerialPrintDebugln("Creating directory " + String(ftpDir) + " in SD");
+      SD.mkdir(ftpDir);
+    }
+
+    //Change working directory
+    SerialPrintDebugln("FTP directory path changed to: " + String(ftpDir));
+
+    String ftpFiles[FTP_BATCH_FILES];
+    uint32_t ftpSizes[FTP_BATCH_FILES];
+
+    SerialPrintDebugln("done");
+
+    int offset = 0;
+    int nextOffset = 0;
+    int nfiles = FTP_BATCH_FILES; // to make sure that we enter in the loop
+    int totalFiles = 0;
+    int totalBytes = 0;
+
+    int filesDownloaded = 0;
+    int filesSkipped = 0;
+    int filesFailed = 0;
+
+    int tinit = millis();
+
+
+    while (nfiles == FTP_BATCH_FILES ) {
+		SerialPrintDebug("Getting FTP file list (offset " + String(offset)+ ")...");
+		ftp.InitFile("Type A");
+		delay(10);
+
+		//===================== GetDirContents torna un espai al principi dels noms!!!! " myfile.txt" ============//
+		nfiles = ftp.GetDirContents("", ftpFiles, ftpSizes, FTP_BATCH_FILES, offset, &nextOffset);
+		SerialPrintDebug("After  FTP file list offset=" + String(offset) +  " nextOffset=" + String(nextOffset));
+
+
+		SerialPrintDebugln(" FTP contents: " + String(nfiles) + " files");
+
+		for ( int i = 0 ; i<nfiles; i++ ){
+			char dest[512];
+			const char* source = ftpFiles[i].c_str();
+			sprintf(dest, "%s/%s", ftpDir, source);
+			int bytes;
+			if ((bytes=tryDownloadFile(source, ftpSizes[i], dest, 3)) < 0){
+			  SerialPrintDebugln("ERROR in file " + String(source));
+			  writeLogFile("State 4 - ERROR downloading file "+ String(source));
+
+			  filesFailed += 1;
+			}
+			else if (bytes == 0) {
+				writeLogFile("State 4 - File already exists in SD: "+ String(source));
+				filesSkipped += 1;
+			}
+			else {
+			  totalBytes += bytes;
+			  writeLogFile("State 4 - Downloaded file "+ String(source) + ", size=" + String(ftpSizes[i]));
+			  filesDownloaded += 1;
+			}
+		}
+
+		offset = nextOffset;
+		totalFiles += nfiles;
+    }
+
+    SerialPrintDebugln(" ===> Processed " + String(totalFiles) +" files! downloaded=" +  String(filesDownloaded) + " skipped=" + String(filesSkipped) +  " failed=" + String(filesFailed) +  "<====");
+    float time = (float)(millis() - tinit)/1000.0;
+
+    if ( time > 0 ) {
+        float bitRate = (float)(8*totalBytes/1024)/time; // in Kbytes
+        SerialPrintDebugln("Total time " + String((millis() - tinit)/1000) + " secs");
+        SerialPrintDebugln("Bit rate " + String((int)bitRate) + " KBytes/secs");
+    }
 }
-void readAndSendBigBinFile(fs::FS &fs, const char *path, ESP32_FTPClient ftpClient) {
-  //readAndSendBigBinFile(SD, "baldo.png", ftp);                 // 272,546
 
-  //ftpClient.SendType("Type I"); //Originaly A
-  ftpClient.InitFile("Type I");
+void connectToFTP(){
+#ifdef FTP_SERVER_PRESENT
+  SerialPrintDebugln("Connecting to FTP server");
+  ftp.OpenConnection();
+  SerialPrintDebugln("FTP Connection established");
+  //check if connection has been established     //TO MODIFY ADD BOOLEAN MEMORY TO KNOW IF IT HAS BEEN CONNECTED ONCE
 
-  ftpClient.NewFile(path);
+  if (ftp.isConnected()) {
+    digitalWrite(LED_R, HIGH);
+  } else {
+    digitalWrite(LED_R, LOW);
+  }
+#endif
+}
 
-  String fullPath = "/";
-  fullPath.concat(path);
-  #ifdef SERIAL_DEBUG
-    Serial.printf("Reading file: %s\n",fullPath);
-  #endif
-  File file = fs.open(fullPath);
+/*
+ * Check if a file exists and has exactly the same size
+ */
+
+bool fileExistsInSD(const char* filename, uint32_t expectedSize) {
+
+  // Check if the file exists
+  if (!SD.exists(filename)) {
+	//SerialPrintDebugln("fileExistsInSD -- File [" + String(filename) + "] does not exist");
+    return false;
+  }
+
+  // Open the file
+  File file = SD.open(filename, FILE_READ);
   if (!file) {
-    SerialPrintDebugln("Failed to open file for reading");
-    return;
+	  //SerialPrintDebugln("fileExistsInSD -- Error opening file [" + String(filename) + "]");
+    return false;
   }
 
+  // Get the size of the file
+  uint32_t sdSize = file.size();
 
-  SerialPrintDebugln("Read from file: ");
-
-  while (file.available()) {
-    //SerialPrintDebugln("avaliable: ");
-    // Create and fill a buffer
-    unsigned char buf[1024];
-    int readVal = file.read(buf, sizeof(buf));
-    ftpClient.WriteData(buf, sizeof(buf));
-  }
-
-  ftpClient.CloseFile();
+  // Close the file
   file.close();
-}
-void obtainFile(const char *fileName) {
-  SerialPrintDebugln("------- OobtainFile()----> START");
 
-  // Get the file size
-  //const char * fileName = "baldo.png";
-  //const char * fileName = "myPhoto.png";
-  //const char * fileName = "hello.txt";
-  //const char * fileName = "gagraphic.jpg";
-  //const char *fileName = "crab.jpg";
-  size_t fileSize = 0;  //baldo.png-1059840 bytes
-  //String    list_of_files[128];// original
-  String list_of_files[128];
-
-  // Get the directory content in order to allocate buffer
-  // my server response is type=file;size=18;modify=20190731140703;unix.mode=0644;unix.uid=10183013;unix.gid=10183013;unique=809g7c8e92e4; helloworld.txt
-  SerialPrintDebugln("send InitFile-- ");
-  ftp.InitFile("Type A");
-  SerialPrintDebugln("send InitFile-- DONE");
-
-  SerialPrintDebugln("start delay 2s--");
-  delay(2000);
-  SerialPrintDebugln("end delay 2s--");
-
-  SerialPrintDebugln("FTP content list-- ");
-  //SerialPrintDebug("0 list_of_files SIZE: ");
-  //SerialPrintDebugln(sizeof(list_of_files));
-
-  ftp.ContentList("", list_of_files);
-
-  //STEVIE TEST
-  //for(int i = 0; i<128; i++){
-  //   SerialPrintDebug("list_of_files ");
-  //   SerialPrintDebug(i);
-  //   SerialPrintDebugln(" Info:   ");
-  //   SerialPrintDebugln(list_of_files[i]);
-  //}
-
-  SerialPrintDebugln("FTP content list-- DONE ");
-
-  //FINS AQUI BIEN
-
-  for (uint8_t i = 0; i < 128; i++) {
-    uint8_t indexSize = 0;
-    uint8_t indexMod = 0;
-    SerialPrintDebug(i);
-    SerialPrintDebug("  list_of_files length ");
-    SerialPrintDebugln(list_of_files[i].length());
-    if (list_of_files[i].length() > 0) {
-      list_of_files[i].toLowerCase();
-
-      if (list_of_files[i].indexOf(fileName) > -1) {
-        SerialPrintDebug("have found a match for ");
-        SerialPrintDebugln(fileName);
-        indexSize = list_of_files[i].indexOf("size") + 5;
-        indexMod = list_of_files[i].indexOf("modify") - 1;
-
-        fileSize = list_of_files[i].substring(indexSize, indexMod).toInt();
-      } else {
-        SerialPrintDebugln("no match");
-      }
-
-      // Print the directory details
-      SerialPrintDebugln("print list-- ");
-      SerialPrintDebugln(list_of_files[i]);
-    } else {
-      SerialPrintDebugln("list finished");
-      break;
-    }
-  }
-
-  // Print file size
-  SerialPrintDebugln("File size is: " + String(fileSize));
-
-  //------------------DOWLOAD FILE-------------------
-
-  //Dynammically alocate buffer
-  unsigned char *downloaded_file = (unsigned char *)malloc(fileSize);
-
-
-  // And download the file
-  SerialPrintDebugln("send Type-- ");
-  //ftp.SendType("Type I");
-  ftp.InitFile("Type I");
-  //ftp.InitFile("Type A");
-  SerialPrintDebugln("send Type-- DONE");
-
-
-
-  //ftp.DownloadFile(fileName, downloaded_file, fileSize, false);
-  //ftp.DownloadFile(fileName, downloaded_file, fileSize, true);
-
-  ftp.DownloadFileAndSaveToSD(fileName, downloaded_file, fileSize);
-
-
-  SerialPrintDebugln("------- OobtainFile()---->END");
-}
-void FTPchangedirectory(const char *directoryPath){
-  ftp.InitFile("Type A");
-  delay(2000);
-  //Change working directory
-  ftp.ChangeWorkDir(directoryPath);
-  SerialPrintDebugln("FTP directory path changed to: " + String(directoryPath));
-}
-void ChangeWorkingDirectory(const char *path) {
-  //Change directory
-  //ex: ChangeWorkingDirectory ( "/test")
-
-  SerialPrintDebugln("Changing Directory -- ");
-  ftp.ChangeWorkDir(path);
-  SerialPrintDebugln("Changing Directory -- Done");
-}
-void CreateDirectory(const char *path) {
-  /*   Create directory - inside working directory
-  *   ex: CreateDirectory ( /test1)// absolute path
-  *   ex: CreateDirectory ( test1)// inside working directory
-  */
-  SerialPrintDebugln("creating directory -- ");
-  ftp.MakeDir(path);
-  SerialPrintDebugln("creating directory -- Done");
-}
-void SDCreateEnterDirectory(const char *folder_name){
-
-  File SDroot;
-
-  //writeLogFile("Creating Folder to save data");
-
-
-   if (SD.exists(folder_name)) {
-    Serial.print(folder_name);
-    Serial.println(" already exists");
+  // Compare file size with expected size
+  if (sdSize == expectedSize) {
+	  //SerialPrintDebugln("fileExistsInSD -- file matches size!");
+    return true;
   } else {
-    if (SD.mkdir(folder_name)) {
-      Serial.print(folder_name);
-      Serial.println(" created");
-    } else {
-      Serial.print("Error creating ");
-      Serial.println(folder_name);
-    }
-  }
-
-  // Move into the created folder
-  SDroot = SD.open(folder_name);
-  if (SDroot) {
-    Serial.print("Moved into  ");
-    Serial.println(folder_name);
-  } else {
-    Serial.print("Error moving into ");
-    Serial.println(folder_name);
+	 //SerialPrintDebugln("fileExistsInSD -- file does not match size! (ftp_size=" + String(expectedSize) + " sd_size=" + String(sdSize) + ")");
+    return false;
   }
 }
+
+
+/*
+ *  Try to download file a number of times, if it failed, skip
+ */
+int tryDownloadFile(const char* source, int size, const char* dest, int tries){
+	int ret=-1;
+	while ( (tries--) && (ret < 0) ) {
+		ret = DownloadFile(source, size, dest);
+		// Check if download failed
+		if (ret < 0 ) {
+			SerialPrintDebugln("Failed to download file [" + String(source) + "], tries remaining=" + String(tries) + String(" "));
+			delay(500);
+			ftp.CloseConnection();
+			delay(500);
+			ftp.OpenConnection();
+			delay(500);
+		}
+	}
+
+#ifdef SERIAL_DEBUG
+
+	if (ret < 0 ){
+		digitalWrite(LED_R, LOW);
+		delay(200);
+		digitalWrite(LED_R, HIGH);
+		delay(200);
+		digitalWrite(LED_R, LOW);
+		delay(200);
+		digitalWrite(LED_R, HIGH);
+	}
+	else {
+		digitalWrite(LED_G, HIGH);
+		delay(200);
+		digitalWrite(LED_G, LOW);
+		delay(200);
+		digitalWrite(LED_G, HIGH);
+		delay(200);
+		digitalWrite(LED_G, LOW);
+	}
+#endif
+
+	return ret;
+}
+
+
+/*
+ * Downloads a file from the FTP server to the SD card
+ *
+ * Return > 0 (file size) if downloaded
+ * Return = 0 if file skipped (already in sd card)
+ * return = -1 if error
+ *
+ */
+int DownloadFile(const char* source, int size, const char* dest){
+	// Checking if destination file exists and has the same size
+
+	if (fileExistsInSD(dest, size)) {
+		SerialPrintDebugln("File [" + String(source) + "] already exists in SD! skipping");
+		return 0;
+	}
+
+	SerialPrintDebug("Downloading [" + String(source) + "] to file in SD [" + String(dest) + "] size=" + String(size) + " ");
+	File outputfile = SD.open(dest, FILE_WRITE);
+	if (!outputfile) {
+		SerialPrintDebugln("ERROR! could not open file" + String(dest));
+		return -1;
+	}
+
+	if (!ftp.isConnected()){
+		SerialPrintDebugln("ERROR! FTP not connected");
+		outputfile.close();
+		return -1;
+	}
+	ftp.InitFile("Type I");
+	if (ftp.DownloadFileToSD(source, size, &outputfile) < 0) {
+		SerialPrintDebugln("ERROR in FTP.DownloadFile" + String(dest));
+		outputfile.close();
+		return -1;
+	}
+  SerialPrintDebugln("success!");
+	outputfile.close();
+	return size;
+}
+
+
 
 //------- FUNCTIONS FOR DATA SENDING -----------------------------------------------------------------------
 void SendDataMessage() {

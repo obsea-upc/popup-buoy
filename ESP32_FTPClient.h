@@ -16,13 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 //  2023: modified by @SC.bcn
+//  2024: modified by UPC
+
 
 /*******************************************************************************
  **                                                                            **
  **                       DEFINITIONS FOR FTP CLIENT                           **
  **                                                                            **
  *******************************************************************************/
-
+#include "SD.h"
 // Uncomment to print debugging info to console attached to ESP32
 #define FTP_DEBUG
 //#ifdef FTP_DEBUG
@@ -36,6 +38,16 @@
 #define FTP_FIL_SIZE 255      // max size of a file name
 #define FTP_BUF_SIZE 4096 //512   //  700 KByte/s download in AP mode, direct connection.
 
+#include "conf.h"
+
+#ifdef FTP_SERIAL_DEBUG
+  #define FTPserialDebug Serial.print
+  #define FTPserialDebugln Serial.println
+#else
+  #define FTPserialDebug(x)
+  #define FTPserialDebugln(x)
+#endif
+
 class ESP32_FTPClient
 {
   private:
@@ -48,17 +60,17 @@ class ESP32_FTPClient
 
   template<typename T>
   		void FTPdbg(T msg) {
-    	if(verbose == 2) Serial.print(msg);
+    	if(verbose == 2) FTPserialDebug(msg);
 		}
-  
+
   template<typename T>
   		void FTPdbgn(T msg) {
-    	if(verbose == 2) Serial.println(msg);
+    	if(verbose == 2) FTPserialDebugln(msg);
 		}
 
     template<typename T>
     void FTPerr(T msg) {
-    if(verbose == 1 || verbose == 2) Serial.print(msg);
+    if(verbose == 1 || verbose == 2) FTPserialDebug(msg);
   }
 
   char* userName;
@@ -84,7 +96,7 @@ class ESP32_FTPClient
   void AppendFile( char* fileName);
   void WriteData (unsigned char * data, int dataLength);
   void CloseFile ();
-  void GetFTPAnswer (char* result = NULL, int offsetStart = 0);
+  bool GetFTPAnswer (char* result = NULL, int offsetStart = 0);
   void GetLastModifiedTime(const char* fileName, char* result);
   void RenameFile(char* from, char* to);
   void Write(const char * str);
@@ -94,10 +106,11 @@ class ESP32_FTPClient
   void ChangeWorkDir(const char * dir);
   void DeleteFile(const char * file);
   void MakeDir(const char * dir);
-  void ContentList2(const char * dir, char * client_file_list);
   void ContentList(const char * dir, String * list);
+  int  GetDirContents(const char* dir, String* filenames, uint32_t* sizes, int buffsize, int offset, int* nextOffset);
   void ContentListWithListCommand(const char * dir, String * list);
   void DownloadString(const char * filename, String &str);
   void DownloadFile(const char * filename, unsigned char * buf, size_t length, bool printUART = false);
   void DownloadFileAndSaveToSD(const char * filename, unsigned char * buf, size_t length);
+  int DownloadFileToSD(const char * filename, int length, File* destination);
 };

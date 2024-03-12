@@ -11,11 +11,12 @@
 
 //------ DEFINITIONS for WiFi
 //#define WORK_office // comment when working from home
-#define WORK_home
+//#define WORK_home
 //#define WORK_enoc
 //#define WORK_office2 
 #define WORK_rasp
-#define WIFI_TIMEOUT 120000 // 2 minutos en milisegundos
+#define WORK_intothedeep
+#define WIFI_TIMEOUT 30000 // 2 minutos en milisegundos
 
 // ----- Definitions for SD card options
 //#define SD_CS 5
@@ -63,11 +64,14 @@
 
 //------ Definition for FTP
 #define FTP_SERVER_PRESENT
+#define FTP_BATCH_FILES 64 // quantitat de fitxers que et descarregues cada vegada
+
+// #define FTP_SERIAL_DEBUG
 
 //------ Definition for GPS module
 #define RXPin_GPS 4
-#define TXPin_GPS 2  
-#define GPSBaud 9600 
+#define TXPin_GPS 2
+#define GPSBaud 9600
 #define MAX_GPS_TIMEOUT 200000     // Time used to let the GPS searching to get fixed (ms)
 
 //------ Definition for KINEIS module
@@ -83,4 +87,3 @@
 #define stdMinElev 15.0f
 #define critMinElev 30.0f
 #define FORCE_A2_UPLINK_STATUS
-

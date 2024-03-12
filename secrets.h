@@ -11,9 +11,13 @@
 #elif defined WORK_office2
   #define WIFI_SSID "SARTI_Wifi_v2" //"iPhone de Matias" //
   #define WIFI_PASS "12345612345612345612345612"//"sartisarti."//
-#elif defined WORK_enoc
+#elif defined WORK_iphone
   #define WIFI_SSID "iPhone de Matias" //"intothedeep" //
   #define WIFI_PASS "sartisarti."//"intothedeep"//
+#elif defined WORK_intothedeep
+  #define WIFI_SSID "intothedeep" //
+  #define WIFI_PASS "intothedeep"//
+
 #endif
 
 #ifdef WORK_rasp   
