@@ -140,11 +140,13 @@ iii. apagar port serie i reduir els 3 segons d'inici  --> ok
 
 //-------SETUP FUNTION -----------------------------------------------------------------------------------
 void setup() {
+  
+
 
   //------- SERIAL SETUP -----------------------------------------------------------------------------------
     #ifdef SERIAL_DEBUG
       Serial.begin(SERIAL_DEBUG_BAUDRATE);
-      SerialPrintDebugln("\n -------------WELCOME TO THE POP-UP-BUOY MASTER- V0.1 10/2023-------------\n\n");
+      SerialPrintDebugln("\n -------------WELCOME TO THE POP-UP-BUOY MASTER- " + String(SOFT_VERSION) + " " + String(COMPILE_DATE)  + "-------------\n\n");
     #endif
 
   //------- EEPROM DEFINITION ------------------------------------------------------------------------------
@@ -377,8 +379,12 @@ void loop() {
       eepromSaveTimeCoverage(200);
       SetCoverageStateTo(1);
       SetCounterFailGPSTo_0();
+      char ftpDir[256];
+      sprintf(ftpDir, "/PopUpBuoy_%d", idBuoy);
+      eraseFolderContent(ftpDir);
       SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state 4 with no coverage.");
       delay(1000);
+
       break;
 
     default:
@@ -1613,17 +1619,17 @@ void downloadAllFilesFTP(){
 			int bytes;
 			if ((bytes=tryDownloadFile(source, ftpSizes[i], dest, 3)) < 0){
 			  SerialPrintDebugln("ERROR in file " + String(source));
-			  writeLogFile("State 4 - ERROR downloading file "+ String(source));
+			  //writeLogFile("State 4 - ERROR downloading file "+ String(source));
 
 			  filesFailed += 1;
 			}
 			else if (bytes == 0) {
-				writeLogFile("State 4 - File already exists in SD: "+ String(source));
+				//writeLogFile("State 4 - File already exists in SD: "+ String(source));
 				filesSkipped += 1;
 			}
 			else {
 			  totalBytes += bytes;
-			  writeLogFile("State 4 - Downloaded file "+ String(source) + ", size=" + String(ftpSizes[i]));
+			  //writeLogFile("State 4 - Downloaded file "+ String(source) + ", size=" + String(ftpSizes[i]));
 			  filesDownloaded += 1;
 			}
 		}
@@ -1638,7 +1644,7 @@ void downloadAllFilesFTP(){
     if ( time > 0 ) {
         float bitRate = (float)(8*totalBytes/1024)/time; // in Kbytes
         SerialPrintDebugln("Total time " + String((millis() - tinit)/1000) + " secs");
-        SerialPrintDebugln("Bit rate " + String((int)bitRate) + " KBytes/secs");
+        SerialPrintDebugln("Bit rate " + String((int)bitRate) + " Kbits/secs");
     }
 }
 
@@ -1660,6 +1666,19 @@ void connectToFTP(){
 /*
  * Check if a file exists and has exactly the same size
  */
+
+
+int getFileSize(const char* filename) {
+  File file = SD.open(filename);
+  if (!file) {
+	// File does not exist or could not be opened
+	return -1;
+  }
+  int fileSize = file.size();
+  file.close();
+  return fileSize;
+}
+
 
 bool fileExistsInSD(const char* filename, uint32_t expectedSize) {
 
@@ -1705,9 +1724,16 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){
 			SerialPrintDebugln("Failed to download file [" + String(source) + "], tries remaining=" + String(tries) + String(" "));
 			delay(500);
 			ftp.CloseConnection();
-			delay(500);
+			delay(200);
 			ftp.OpenConnection();
-			delay(500);
+			delay(200);
+			ftp.InitFile("Type A");
+			delay(200);
+		  char ftpDir[64];
+		  sprintf(ftpDir, "/PopUpBuoy_%d", idBuoy);
+		  delay(200);
+		  ftp.ChangeWorkDir(ftpDir);
+		  delay(200);
 		}
 	}
 
@@ -1752,8 +1778,9 @@ int DownloadFile(const char* source, int size, const char* dest){
 		SerialPrintDebugln("File [" + String(source) + "] already exists in SD! skipping");
 		return 0;
 	}
-
-	SerialPrintDebug("Downloading [" + String(source) + "] to file in SD [" + String(dest) + "] size=" + String(size) + " ");
+  int timeout = size/20;
+  timeout = max(1000, timeout);
+	SerialPrintDebug("Downloading [" + String(source) + "] to SD (FTP size=" + String(size) + ") setting timeout to " + String(timeout) + " msecs ");
 	File outputfile = SD.open(dest, FILE_WRITE);
 	if (!outputfile) {
 		SerialPrintDebugln("ERROR! could not open file" + String(dest));
@@ -1766,13 +1793,32 @@ int DownloadFile(const char* source, int size, const char* dest){
 		return -1;
 	}
 	ftp.InitFile("Type I");
-	if (ftp.DownloadFileToSD(source, size, &outputfile) < 0) {
-		SerialPrintDebugln("ERROR in FTP.DownloadFile" + String(dest));
+  int retcode = 0;
+
+	if ((retcode=ftp.DownloadFileToSD(source, size, &outputfile, timeout)) < 0) {
+    // Return codes: 0 success, -1 FTP not connected, -2 ERROR in FTP command, -3 Timeout
+
+		SerialPrintDebug("ERROR in FTP.DownloadFile ");
+    if (retcode == -1 ) {
+		  SerialPrintDebugln("FTP not connected");
+    } else if (retcode == -2) {
+		  SerialPrintDebugln("ERROR in FTP command");
+    } else if (retcode == -3) {
+		  SerialPrintDebugln("FTP timeout");
+    } else {
+		  SerialPrintDebugln("Unknown code=" + String(retcode));
+    }
 		outputfile.close();
 		return -1;
 	}
-  SerialPrintDebugln("success!");
 	outputfile.close();
+	int destSize = getFileSize(dest);
+	if (destSize != size) {
+		SerialPrintDebugln("ERROR! file size expected=" + String(size) + " but got "+ String(destSize) + ", removing file");
+		SD.remove(dest);
+    return -1;
+	}
+	SerialPrintDebugln("success!!");
 	return size;
 }
 
@@ -2084,4 +2130,21 @@ void printAopTable(const AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable
                       aopTable[i].ascNodeDriftDeg, aopTable[i].orbitPeriodMin, aopTable[i].semiMajorAxisDriftMeterPerDay, aopTable[i].entryName);
     }
     SerialPrintDebugln("};");
+}
+
+
+void eraseFolderContent(const char* folderName) {
+  File folder = SD.open(folderName);
+  
+  while (true) {
+    File entry =  folder.openNextFile();
+    if (!entry) {
+      // No more files
+      break;
+    }
+    entry.close();
+    SD.remove(entry.name()); // Remove the file    
+  }
+  
+  folder.close();
 }

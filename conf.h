@@ -1,3 +1,7 @@
+#define SOFT_VERSION "v0.1.1"
+#define COMPILE_DATE __DATE__
+
+
 ////----- TEST PARAMETERS
 
 #define INITIAL_STATE 0
@@ -13,9 +17,9 @@
 //#define WORK_office // comment when working from home
 //#define WORK_home
 //#define WORK_enoc
-//#define WORK_office2 
+#define WORK_office2 
 #define WORK_rasp
-#define WORK_intothedeep
+//#define WORK_intothedeep
 #define WIFI_TIMEOUT 30000 // 2 minutos en milisegundos
 
 // ----- Definitions for SD card options
@@ -66,7 +70,7 @@
 #define FTP_SERVER_PRESENT
 #define FTP_BATCH_FILES 64 // quantitat de fitxers que et descarregues cada vegada
 
-// #define FTP_SERIAL_DEBUG
+//#define FTP_SERIAL_DEBUG
 
 //------ Definition for GPS module
 #define RXPin_GPS 4

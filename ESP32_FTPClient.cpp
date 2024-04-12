@@ -711,17 +711,13 @@ void ESP32_FTPClient::DownloadFileAndSaveToSD(const char * filename, unsigned ch
 }
 
 
-
-int ESP32_FTPClient::DownloadFileToSD(const char * filename, int length, File* destination) {
-
-  for (int i=0; i<strlen(filename) ; i++) {
-	  FTPserialDebugln(String(i) + " " + String(filename[i]) + " (" + String(int(filename[i])) + ")");
-  }
+/*
+ *  Return codes: 0 success, -1 FTP not connected, -2 ERROR in FTP command, -3 Timeout
+ */
+int ESP32_FTPClient::DownloadFileToSD(const char * filename, int length, File* destination, int file_timeout) {
   FTPserialDebugln("Preparing to download:   [" + String(filename) + "] (size " + String(length) + " bytes)");
 
   //Requesting server to send the file
-
-
 
   if (!isConnected()) {
 	  FTPserialDebug("ERROR! FTP not connected");
@@ -735,35 +731,50 @@ int ESP32_FTPClient::DownloadFileToSD(const char * filename, int length, File* d
 
   if (!GetFTPAnswer(_resp)) {
 	  FTPserialDebug("ERROR in FTP command");
-	  return -1;
+	  return -2;
   }
 
 
   int bytes_written=0;
+  
 
   //wait until client is available
-  unsigned long _m = millis();
-  while ( !dclient.available() && millis() < _m + timeout){
-    delay(1);
+  unsigned long init = millis();
 
-  }
-
-  int loop_counter=0;
-
-  while (dclient.available()) {
-    FTPserialDebugln(dclient.available());
-    FTPserialDebug("Reading " + String(FTP_BUF_SIZE) + " bytes from client...");
+  int loop_counter = 0;
+  bool timeout_flag = false;
+  while ( bytes_written < length ) {
+    while (!dclient.available()) {
+      // If client is not available, wait until it is
+      delay(1);
+      if (millis() > init + file_timeout) {
+        // If we waited too long (timeout expired) break the while
+        FTPserialDebug("ERROR  FTP TIMEOUT");
+        return -3;
+      }
+    }
+	
     int16_t nb = dclient.readBytes((uint8_t*)inBuffer, FTP_BUF_SIZE); // read from the wifi connection
     FTPserialDebug(" ---> " + String(nb) + " bytes read");
-    if( nb > 0 ){
-      bytes_written = destination->write((uint8_t*) inBuffer, nb );
-      bytesTransfered += nb;
-    }
-    loop_counter=loop_counter+1;
 
-    FTPserialDebug(loop_counter);
-    FTPserialDebugln(bytesTransfered);
-    delay(30);
+    if( nb > 0 ){
+      bytes_written += destination->write((uint8_t*) inBuffer, nb );
+      bytesTransfered += nb;
+    } 
+    FTPserialDebug("FTP READ " + String(nb) + " bytes, requested " + String(FTP_BUF_SIZE) + " total written " + String(bytes_written) + " of " + String(length));
+    loop_counter=loop_counter+1;    
+    FTPserialDebugln("total written " + String(bytes_written)); 
   }
   return 0;
 }
+
+
+
+
+
+
+
+
+
+
+

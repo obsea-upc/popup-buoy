@@ -112,5 +112,5 @@ class ESP32_FTPClient
   void DownloadString(const char * filename, String &str);
   void DownloadFile(const char * filename, unsigned char * buf, size_t length, bool printUART = false);
   void DownloadFileAndSaveToSD(const char * filename, unsigned char * buf, size_t length);
-  int DownloadFileToSD(const char * filename, int length, File* destination);
+  int DownloadFileToSD(const char * filename, int length, File* destination, int file_timeout);
 };
