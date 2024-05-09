@@ -89,7 +89,7 @@ class ESP32_FTPClient
   public:
   ESP32_FTPClient(char* _serverAdress, uint16_t _port, char* _userName, char* _passWord, uint16_t _timeout = 10000, uint8_t _verbose = 1);
   ESP32_FTPClient(char* _serverAdress, char* _userName, char* _passWord, uint16_t _timeout = 10000, uint8_t _verbose = 1);
-  void OpenConnection();
+  int OpenConnection();
   void CloseConnection();
   bool isConnected();
   void NewFile (const char* fileName);

@@ -181,12 +181,16 @@ void ESP32_FTPClient::CloseConnection() {
   FTPdbgn(F("Connection closed"));
 }
 
-void ESP32_FTPClient::OpenConnection() {
+int ESP32_FTPClient::OpenConnection() {
   FTPdbg(F("Connecting to: "));
   FTPdbgn(serverAdress);
   if ( client.connect(serverAdress, port, timeout) )
   {
     FTPdbgn(F("Command connected"));
+  }
+  else 
+  {
+    return -1;
   }
   FTPserialDebug("Welcome message: ");
   delay (100);
@@ -219,6 +223,7 @@ void ESP32_FTPClient::OpenConnection() {
     FTPserialDebug("Send SYST Response: ");
     FTPserialDebugln(outBuf);
   */
+  return 0;
 }
 
 void ESP32_FTPClient::RenameFile(char* from, char* to) {

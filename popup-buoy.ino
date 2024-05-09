@@ -458,7 +458,12 @@ void loop() {
       digitalWrite(LED_R, LOW);
       if (connectToRaspWiFi()) {
     	  digitalWrite(LED_R, HIGH);
-    	  connectToFTP();
+        if (connectToFTP() < 0) {                
+          writeLogFile("State 2 - Release of buoy " +String(idBuoy)+ " failed! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
+          writeLogFile("State 2 - Not achieved release phase, keeping state 3");
+          SleepModeSequence(0, TIME_TO_SLEEP_STATE3errorm, 0); //Enter Sleep Mode
+          break;
+        }
     	  digitalWrite(LED_Y, HIGH);
     	  downloadAllFilesFTP();
     	  digitalWrite(LED_G, HIGH);
@@ -1684,10 +1689,13 @@ void downloadAllFilesFTP(){
     }
 }
 
-void connectToFTP(){
+int connectToFTP(){
 #ifdef FTP_SERVER_PRESENT
   SerialPrintDebugln("Connecting to FTP server");
-  ftp.OpenConnection();
+  if (ftp.OpenConnection()<0){      
+      writeLogFile("ERROR could not connect to FTP!");
+      return -1;
+  }
   SerialPrintDebugln("FTP Connection established");
   //check if connection has been established     //TO MODIFY ADD BOOLEAN MEMORY TO KNOW IF IT HAS BEEN CONNECTED ONCE
 
@@ -1697,6 +1705,7 @@ void connectToFTP(){
     digitalWrite(LED_R, LOW);
   }
 #endif
+  return 0;
 }
 
 /*
