@@ -459,13 +459,18 @@ void loop() {
       if (connectToRaspWiFi()) {
     	  digitalWrite(LED_R, HIGH);
         if (connectToFTP() < 0) {                
-          writeLogFile("State 2 - Release of buoy " +String(idBuoy)+ " failed! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
-          writeLogFile("State 2 - Not achieved release phase, keeping state 3");
+          writeLogFile("State 2 - Connection to FTP failed! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
+          writeLogFile("State 2 - Not achieved release phase, keeping state 2");
           SleepModeSequence(0, TIME_TO_SLEEP_STATE3errorm, 0); //Enter Sleep Mode
           break;
         }
     	  digitalWrite(LED_Y, HIGH);
-    	  downloadAllFilesFTP();
+    	  if (downloadAllFilesFTP()<0) {
+          writeLogFile("State 2 - Download of FTP files from buoy " +String(idBuoy)+ " failed! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
+          writeLogFile("State 2 - Not achieved release phase, keeping state 2");
+          SleepModeSequence(0, TIME_TO_SLEEP_STATE3errorm, 0); //Enter Sleep Mode
+          break;  
+        }
     	  digitalWrite(LED_G, HIGH);
     	  delay(200);
           writeLogFile("State 2 - Files downloaded");
@@ -474,8 +479,8 @@ void loop() {
           SleepModeSequence(TIME_TO_SLEEP_STATE3h, TIME_TO_SLEEP_STATE3m, 0); //Enter Sleep Mode
       }
       else {
-          writeLogFile("State 2 - Release of buoy " +String(idBuoy)+ " failed! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
-          writeLogFile("State 2 - Not achieved release phase, keeping state 3");
+          writeLogFile("State 2 - Release of buoy " +String(idBuoy)+ " failed for No-WiFi! Going to sleep for " +  String(TIME_TO_SLEEP_STATE3errorm) + " minutes to repeat the release." );
+          writeLogFile("State 2 - Not achieved release phase, keeping state 2");
           SleepModeSequence(0, TIME_TO_SLEEP_STATE3errorm, 0); //Enter Sleep Mode
       }
 
@@ -1600,7 +1605,7 @@ void SendGPSMessage(int timeSending) {
 /*
  * Downloads all files from the FTP to the SD card
  */
-void downloadAllFilesFTP(){
+int downloadAllFilesFTP(){
     char ftpDir[64];
 
 
@@ -1687,6 +1692,10 @@ void downloadAllFilesFTP(){
         writeLogFile("Total time " + String((millis() - tinit)/1000) + " secs");
         writeLogFile("Bit rate " + String((int)bitRate) + " Kbits/secs");
     }
+    if (totalFiles<0){
+      return -1;
+    }
+    return 0;
 }
 
 int connectToFTP(){
