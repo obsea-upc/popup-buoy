@@ -8,6 +8,7 @@
 
 ///------ OPTIONS TO DEBUG
 #define SERIAL_DEBUG  // comment line to disable Serial prints
+#define LED_DEBUG
 #define SERIAL_DEBUG_BAUDRATE 115200
 
 //------- EEPROM
@@ -51,7 +52,7 @@
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
 #define TIME_TO_SLEEP 50  
 #define TIME_TO_SLEEP_STATE1h 0       //Time to Sleep state 1 (from config to deep sea) in hours
-#define TIME_TO_SLEEP_STATE1m 1       //Time to Sleep state 1 (from config to deep sea) in min
+#define TIME_TO_SLEEP_STATE1m 10       //Time to Sleep state 1 (from config to deep sea) in min
 #define TIME_TO_SLEEP_STATE3h 0       //Time to Sleep state 3 (from release to surface) in hours
 #define TIME_TO_SLEEP_STATE3m 1       //Time to Sleep state 3 (from release to surface) in min
 #define TIME_TO_SLEEP_STATE3errorm 1   //Time to Sleep state 3 (if WiFi or HTTP error) in min
@@ -76,12 +77,12 @@
 #define RXPin_GPS 4
 #define TXPin_GPS 2
 #define GPSBaud 9600
-#define MAX_GPS_TIMEOUT 200000     // Time used to let the GPS searching to get fixed (ms)
+//#define MAX_GPS_TIMEOUT 5000     // Time used to let the GPS searching to get fixed (ms)                                                                 SD
 
 //------ Definition for KINEIS module
 #define MAX_SLEEP_TIME_S 1800  //Maximum surface sleep time in s at any condition (to ensure the recovery)
-#define TRANSMISSION_GPS_S 150    //Time for normal GPS transmission, minimum --> Minimum duration (default 5 minutes, now at 2.5 min) --> 300 s =10 messages
-#define TRANSMISSION_GPS_NOARG_S 90   //Time for GPS transmission, no ARGOS coverage (default 90 -> 3 messages)
+#define TRANSMISSION_GPS_S 60    //Time for normal GPS transmission, minimum --> Minimum duration --> 300 s =10 messages .. now is 2 messages             SD
+#define TRANSMISSION_GPS_NOARG_S 90   //Time for GPS transmission, no ARGOS coverage (default 90 -> 3 messages)                                           SD
 #define INTERVAL_MS 30000         // Time in ms between two kineis messages (ms)
 #define INTERVAL_SEND_MS 6000    //Boosting the message
 #define KIM_RXD0 16
@@ -89,5 +90,5 @@
 #define KIMBaud 9600  //4800 in prev KIM1
 #define maxAOPSize 10  //Maxim number of satellites in AOP tamble
 #define stdMinElev 15.0f
-#define critMinElev 30.0f
+#define critMinElev 45.0f
 #define FORCE_A2_UPLINK_STATUS

@@ -26,14 +26,14 @@
 *   Distributed as-is; no warranty is given.
 
 WORKING PROGRESS
-1. Change to internal RTC? calibrate the timmings OR change to new external RTC
+1. parametres de KIM transmission - power + elevations i temps d'envio de GPS... passar a sd
 
+FUTURE IMPROVEMENTS
+1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo 
+2. Implement a board without intermediate boards. No Evaluation boards, all solded.
 
 -----extres al test----
 i. Baixar potencia KIm? --> esperar a resultats lucas
-ii. No ens calen tants missatges. Fer mes gran el min elev --> 15 i 30
-iii. apagar port serie i reduir els 3 segons d'inici  --> ok
-
 
 
 ******************************************************************************/
@@ -86,6 +86,7 @@ iii. apagar port serie i reduir els 3 segons d'inici  --> ok
   String messageLogFile = "";  // Variable used to write in the LogFile
   int timeSending;
   int fileSendingTime;
+  int waitSendingTime;
   String number = "";
   float MinElev;
 
@@ -95,6 +96,7 @@ iii. apagar port serie i reduir els 3 segons d'inici  --> ok
   uint16_t gpsYear;
   bool gpsFix;
   uint32_t epochTime;
+  int maxTimeout;
 
 //------ Define Variables for the Kineis communication -----------------------------------------------------------------
   int NbrMsgToSend;
@@ -123,7 +125,7 @@ iii. apagar port serie i reduir els 3 segons d'inici  --> ok
   File GpsTrackFile;
   const char *Log_filename = "/LogFile.txt";  // Log file
   File LogFile;
-  const char *SD_data_filename = "/dataFile.txt";  // File containing all the data which are going to be sent
+  char *SD_data_filename; // File containing all the data which are going to be sent
   File datamsgSD;
   const char *SD_progress_filename = "/progressFile.txt";  // File containing the progress of sending the file, to be used to get where we are in the file with data
   File progressDataFileSD;
@@ -288,6 +290,19 @@ void setup() {
   //--------CONF FILE PARAMETERS ---------------------------------------------------------------------------
     if (currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5) {      
       getInfoFromConfFile();   // To get all the informations put by the user in this conf file
+      char locationSD[64];
+      sprintf(locationSD, "/PopUpBuoy_%d", idBuoy);
+      char nameFileData[64] = "/dataFile.txt";
+      SD_data_filename = (char *)malloc(strlen(locationSD) + strlen(nameFileData) + 1);
+      // Comprueba si se asignó memoria correctamente
+      if (SD_data_filename != NULL) {
+        // Copia locationSD a SD_data_filename
+        strcpy(SD_data_filename, locationSD);
+        // Concatena nameFileData a SD_data_filename
+        strcat(SD_data_filename, nameFileData);
+      } else {
+        SerialPrintDebug("Error: not possible to allocate the memmory");
+      }     
     }
   //------- SLEEP MODE SETUP -------------------------------------------------------------------------------
     // Two ways of waking up, by a timmer or by an external iterruption
@@ -447,7 +462,7 @@ void loop() {
     	  digitalWrite(LED_Y, HIGH);
     	  downloadAllFilesFTP();
     	  digitalWrite(LED_G, HIGH);
-    	  delay(1000);
+    	  delay(200);
           writeLogFile("State 2 - Files downloaded");
           changeStateTo(3); //Change state to 4 and save state in eeprom
           writeLogFile("Changing to State 3");
@@ -521,10 +536,11 @@ void loop() {
           writeLogFile("State 4 - No ARGOS coverage, sending 3 GPS messages and going back to sleep");
 
         } else if (CoverageState == 1) {                                   // There is coverage
-          if (RowProgress>MaxRowDataFile){                       // End of datafile 
-            timeSending = Decimal_CoverageDuration;                        // Just transmitting position all time
+          if (RowProgress>MaxRowDataFile){                       // End of datafile or not Found (MaxRowDataFile is : 0 and Rowfile is 1 or more) (if we can't open both RowProgress is 1 and MaxRowDataFile is 0)
+            timeSending = TRANSMISSION_GPS_S;                        // Just transmitting position all time
             fileSendingTime = 0;
-            writeLogFile("State 4 - Argos coverage OK. Datafile completely sent. Sending GPS for " + String(timeSending) + " seconds. Then go back to sleep.");
+            waitSendingTime = (Decimal_CoverageDuration - timeSending) / 2; // we will wait to ensure the GPS is sent in the midle of Argos
+            writeLogFile("State 4 - Argos coverage OK. DataFile completely sent or not found. Sending GPS for " + String(timeSending) + " seconds. Then go back to sleep.");
           }else{
             timeSending = TRANSMISSION_GPS_S;                                // XX sec of sending GPS
             fileSendingTime = (Decimal_CoverageDuration - timeSending) / 2;  // In this case we must send the file but GPS is sent at the middle of the coverage so we sent the file before and after
@@ -555,15 +571,35 @@ void loop() {
         }
 
       // --- SENDING MESSAGES PART --- 
+        if (CoverageState == 0 ) {
+          SendGPSMessage(timeSending);   // We don't care when the message is sent because there's no ARGOS coverage
+        } else {
+          if (fileSendingTime>0 && RowProgress<MaxRowDataFile) {
+            readSuccessFile();
+            SendFileKim(fileSendingTime);  // file sent before the GPS data
+          } else { // End of datafile or not Found
+            writeLogFile("State 4 - DataFile completely sent or not found. Light sleep for " + String(waitSendingTime) + " to ensure the GPS message is sent at the midle of the coverage.");
+            ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices 
+            delay(10);
+            goToSleep(waitSendingTime);
+            ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
+            delay(10);
+          }
 
-        if (CoverageState == 1 && fileSendingTime>0 && RowProgress<MaxRowDataFile) {
-          readSuccessFile();
-          SendFileKim(fileSendingTime);  // file sent before the GPS data
-        } 
-        SendGPSMessage(timeSending);   // The GPS is sent at the middle of the coverage --> better chance to be received by satellites
-        if (CoverageState == 1 && fileSendingTime>0 && RowProgress<MaxRowDataFile) {
-          SendFileKim(fileSendingTime);  // file sent after the GPS data
-        } 
+          SendGPSMessage(timeSending);   // The GPS is sent at the middle of the coverage --> better chance to be received by satellites
+
+          if (fileSendingTime>0 && RowProgress<MaxRowDataFile) {
+            SendFileKim(fileSendingTime);  // file sent after the GPS data
+          } else {
+            /*ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices 
+            delay(10);
+            goToSleep(waitSendingTime);
+            ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
+            delay(10);*/          // No need to sleep again! Directly to sleep to avid innecessary consumption
+          }
+        }
+
+
         writeLogFile("State 4 - End of KIM transmissions.");
         delay(10);
 
@@ -684,8 +720,8 @@ void loop() {
         }
 
       // --- SENDING MESSAGES PART --- this can be moved down
-
-        SendGPSMessage(timeSending);   // The GPS is sent at the middle of the coverage --> better chance to be received by satellites
+      
+        SendGPSMessage(timeSending);   // No need for delay. If no Argoscoverage, don't care when its sent. If argos coverage, all time sending GPS data so also in the midle.
         writeLogFile("State 5 - End of KIM transmissions.");
         delay(10);
 
@@ -1090,7 +1126,7 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
   
   gps = TinyGPSPlus();  // Reset the GPS
   int gpsState = 0;
-  int maxTimeout = MAX_GPS_TIMEOUT;
+  //int maxTimeout = MAX_GPS_TIMEOUT;
   int initialTime = millis();
   gpsFix = false;
 
@@ -1638,13 +1674,13 @@ void downloadAllFilesFTP(){
 		totalFiles += nfiles;
     }
 
-    SerialPrintDebugln(" ===> Processed " + String(totalFiles) +" files! downloaded=" +  String(filesDownloaded) + " skipped=" + String(filesSkipped) +  " failed=" + String(filesFailed) +  "<====");
+    writeLogFile(" ===> Processed " + String(totalFiles) +" files! downloaded=" +  String(filesDownloaded) + " skipped=" + String(filesSkipped) +  " failed=" + String(filesFailed) +  "<====");
     float time = (float)(millis() - tinit)/1000.0;
 
     if ( time > 0 ) {
         float bitRate = (float)(8*totalBytes/1024)/time; // in Kbytes
-        SerialPrintDebugln("Total time " + String((millis() - tinit)/1000) + " secs");
-        SerialPrintDebugln("Bit rate " + String((int)bitRate) + " Kbits/secs");
+        writeLogFile("Total time " + String((millis() - tinit)/1000) + " secs");
+        writeLogFile("Bit rate " + String((int)bitRate) + " Kbits/secs");
     }
 }
 
@@ -1737,7 +1773,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){
 		}
 	}
 
-#ifdef SERIAL_DEBUG
+#ifdef LED_DEBUG
 
 	if (ret < 0 ){
 		digitalWrite(LED_R, LOW);
@@ -1848,7 +1884,7 @@ void readSuccessFile() {
   progressDataFileSD = SD.open(SD_progress_filename, FILE_READ); // if it does not work get back to FILE_READ
   if (!progressDataFileSD) {  // Checking if the file is open
     SerialPrintDebugln(String(SD_progress_filename) + " couldn't be opened");
-    RowProgress = 0;  // If it can't open, put the info to 0 in the progress file
+    RowProgress = 1;  // If it can't open, put the info to 1 in the progress file
     nbrSendingProgress = 0;
   } else {
     if (progressDataFileSD.size() == 0) {  // Checking if the file is empty, if so, put the progress data to 0
@@ -2067,6 +2103,11 @@ void getInfoFromConfFile() {
       if (VariableNameStr == "idBuoy") {
         idBuoy = DataFromVariable;
         SerialPrintDebugln("id Buoy " + String(DataFromVariable));
+      }
+
+      if (VariableNameStr == "MAX_GPS_TIMEOUT") {
+        maxTimeout = DataFromVariable;
+        SerialPrintDebugln("maximum Timeout of GPS " + String(DataFromVariable));
       }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
