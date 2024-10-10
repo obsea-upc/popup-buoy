@@ -16,9 +16,9 @@
 
 //------ DEFINITIONS for WiFi
 //#define WORK_office // comment when working from home
-#define WORK_home
+//#define WORK_home
 //#define WORK_enoc
-//#define WORK_office2 
+#define WORK_office2 
 #define WORK_rasp
 //#define WORK_intothedeep
 #define WIFI_TIMEOUT 30000 //  30 seundos en milisegundos

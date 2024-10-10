@@ -34,3 +34,6 @@
 //#define SECRET_FTP_SERVER_IP "192.168.0.36";
 //#define SECRET_FTP_SERVER_USER "matias"; //set in the server
 //#define SECRET_FTP_SERVER_PASS "matias"; //set in the server
+
+//FIXED IP in the POPUP server 192.168.102.204
+//WIFI IP in the POPUP server AP 192.168.5.1

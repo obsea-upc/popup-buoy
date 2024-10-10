@@ -103,7 +103,8 @@ FUTURE IMPROVEMENTS
   int idBuoy;
   enum ActionType {
     RELEASE = 1,
-    PERMISSION = 2
+    PERMISSION = 2,
+    GETTIME = 3
   };
   enum ReleaseMode {
     FRM,  // FAST RECOVERY MODE
@@ -480,7 +481,17 @@ void loop() {
       digitalWrite(LED_Y, LOW);
       digitalWrite(LED_R, LOW);
       if (connectToRaspWiFi()) {
-        if (sendHttpGetRequest(idBuoy,RELEASE,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        if (sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+          // Ajustar el RTC con los valores obtenidos
+          int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
+          DateTime newTime(year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander);
+          rtcExt.adjust(newTime);
+          writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " with the time Lander done." );
+        }else{
+          writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " failed for wrong HTTP request!" );
+        }
+
+        if (sendHttpGetRequest(idBuoy,PERMISSION,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
           if (releaseFlag){
             
             EEPROM.write(5, static_cast<uint8_t>(releaseMode)); 
@@ -572,7 +583,7 @@ void loop() {
           case DM:
             changeStateTo(4); //Change state to 4 and save state in eeprom
             SetCoverageStateTo(0); //first release no transmission of data cause we havent fix the GPS
-            writeLogFile("Finished release phase, changing state to 6 as Drifting Mode");
+            writeLogFile("Finished release phase, changing state to 4 as Drifting Mode");
             break;
           default:
             changeStateTo(4); //Change state to 4 and save state in eeprom
@@ -1248,71 +1259,202 @@ void lightSequenceSleep() {
     delay(100);
   }
 }
-bool parsePermissionResponse(const String& payload, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
-  String response;
+bool parseTimeResponse(const String &payload, int &year, int &month, int &day, int &hour, int &minute, int &second) {
+    // Verificar si el campo "success" es true
+    if (payload.indexOf("\"success\": true") == -1) {
+        writeLogFile("Request failed: Time parsing failed due to missing success flag.");
+        return false;
+    }
 
-  // Parseo manual de la respuesta. Asumimos que es un JSON simple como:
-  // {"releaseFlag":1,"releaseMode":"FRM","sleeptime_h":5,"sleeptime_m":30}
+    // Extraer el año
+    int yearStart = payload.indexOf("\"year\":");
+    if (yearStart != -1) {
+        yearStart = payload.indexOf(":", yearStart) + 1;
+        year = payload.substring(yearStart, payload.indexOf(",", yearStart)).toInt();
+        SerialPrintDebugln("Year is: " + String(year));
+    } else {
+        writeLogFile("Missing year in response");
+        return false;
+    }
 
-  // Extraer releaseFlag
-  int startIndex = payload.indexOf("\"releaseFlag\":") + 14;
-  int endIndex = payload.indexOf(",", startIndex);
-  releaseFlag = payload.substring(startIndex, endIndex).toInt();
+    // Extraer el mes
+    int monthStart = payload.indexOf("\"month\":");
+    if (monthStart != -1) {
+        monthStart = payload.indexOf(":", monthStart) + 1;
+        month = payload.substring(monthStart, payload.indexOf(",", monthStart)).toInt();
+        SerialPrintDebugln("Month is: " + String(month));
+    } else {
+        writeLogFile("Missing month in response");
+        return false;
+    }
 
-  // Extraer releaseMode
-  startIndex = payload.indexOf("\"releaseMode\":\"") + 15;
-  endIndex = payload.indexOf("\"", startIndex);
-  String releaseModeString = payload.substring(startIndex, endIndex);
+    // Extraer el día
+    int dayStart = payload.indexOf("\"day\":");
+    if (dayStart != -1) {
+        dayStart = payload.indexOf(":", dayStart) + 1;
+        day = payload.substring(dayStart, payload.indexOf(",", dayStart)).toInt();
+        SerialPrintDebugln("Day is: " + String(day));
+    } else {
+        writeLogFile("Missing day in response");
+        return false;
+    }
 
-  // Convertir releaseMode a enum
-  if (releaseModeString == "FRM") {
-    releaseMode = FRM;
-  } else if (releaseModeString == "DM") {
-    releaseMode = DM;
-  } else {
-    response = "Invalid releaseMode received";
-    writeLogFile(response);
-    return false;
-  }
+    // Extraer la hora
+    int hourStart = payload.indexOf("\"hour\":");
+    if (hourStart != -1) {
+        hourStart = payload.indexOf(":", hourStart) + 1;
+        hour = payload.substring(hourStart, payload.indexOf(",", hourStart)).toInt();
+        SerialPrintDebugln("Hour is: " + String(hour));
+    } else {
+        writeLogFile("Missing hour in response");
+        return false;
+    }
 
-  // Extraer sleeptime_h
-  startIndex = payload.indexOf("\"sleeptime_h\":") + 14;
-  endIndex = payload.indexOf(",", startIndex);
-  sleeptime_h = payload.substring(startIndex, endIndex).toInt();
+    // Extraer el minuto
+    int minuteStart = payload.indexOf("\"minute\":");
+    if (minuteStart != -1) {
+        minuteStart = payload.indexOf(":", minuteStart) + 1;
+        minute = payload.substring(minuteStart, payload.indexOf(",", minuteStart)).toInt();
+        SerialPrintDebugln("Minute is: " + String(minute));
+    } else {
+        writeLogFile("Missing minute in response");
+        return false;
+    }
 
-  // Extraer sleeptime_m
-  startIndex = payload.indexOf("\"sleeptime_m\":") + 14;
-  endIndex = payload.indexOf("}", startIndex);
-  sleeptime_m = payload.substring(startIndex, endIndex).toInt();
+    // Extraer el segundo
+    int secondStart = payload.indexOf("\"second\":");
+    if (secondStart != -1) {
+        secondStart = payload.indexOf(":", secondStart) + 1;
+        second = payload.substring(secondStart, payload.indexOf("}", secondStart)).toInt();
+        SerialPrintDebugln("Second is: " + String(second));
+    } else {
+        writeLogFile("Missing second in response");
+        return false;
+    }
 
-  // Loggear el resultado del parsing
-  response = "Parsed HTTP response - releaseFlag: " + String(releaseFlag) +
-             ", releaseMode: " + releaseModeString +
-             ", sleeptime_h: " + String(sleeptime_h) +
-             ", sleeptime_m: " + String(sleeptime_m);
-  writeLogFile(response);
+    // Log de éxito
+    String log = "Parsed time response successfully. ";
+    log += "Year: " + String(year) + ", ";
+    log += "Month: " + String(month) + ", ";
+    log += "Day: " + String(day) + ", ";
+    log += "Hour: " + String(hour) + ", ";
+    log += "Minute: " + String(minute) + ", ";
+    log += "Second: " + String(second);
+    
+    writeLogFile(log);
+    return true;
+}
+bool parsePermissionResponse(const String &payload, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
+    // Verificar si el campo "success" es true
+    if (payload.indexOf("\"success\": true") == -1) {
+        // Extraer el mensaje de error si "success" no es true
+        int messageStart = payload.indexOf("\"message\":\"");
+        if (messageStart != -1) {
+            messageStart += 10;  // Ajustar posición al valor del mensaje
+            int messageEnd = payload.indexOf("\"", messageStart);
+            String message = payload.substring(messageStart, messageEnd);
+            String log = "Request failed: " + message;
+            writeLogFile(log);
+        } else {
+            writeLogFile("Request failed: Unknown error");
+        }
+        return false;
+    }
 
-  return true;
+    // Extraer releaseFlag (manejar espacios antes del valor)
+    int flagStart = payload.indexOf("\"releaseFlag\":");
+    if (flagStart != -1) {
+        flagStart = payload.indexOf(":", flagStart) + 1;  // Ajustar posición al valor
+        releaseFlag = payload.substring(flagStart, payload.indexOf(",", flagStart)).toInt();
+        SerialPrintDebugln("releaseFlag is " + String(releaseFlag));
+    } else {
+        writeLogFile("Missing releaseFlag in response");
+        return false;
+    }
+
+    // Extraer releaseMode
+    int modeStart = payload.indexOf("\"releaseMode\": ");
+    if (modeStart != -1) {
+        modeStart = payload.indexOf(":", modeStart) + 2;  // Ajustar posición al valor, +2 para incluir el siguiente "
+        int modeEnd = payload.indexOf(",", modeStart);
+        String releaseModeStr = payload.substring(modeStart, modeEnd); // Sin trim()
+        SerialPrintDebugln("releaseModeStr is: " + releaseModeStr);
+        if (releaseModeStr == "\"FRM\"") {
+            releaseMode = FRM;
+        } else if (releaseModeStr == "\"DM\"") {
+            releaseMode = DM;
+        } else {
+            writeLogFile("Unknown releaseMode: " + releaseModeStr + ". Forcing releaseMode to DM.");
+            releaseMode = DM;
+        }
+    } else {
+        writeLogFile("Missing releaseMode in response");
+        return false;
+    }
+
+    // Extraer sleeptime_h (manejar espacios antes del valor)
+    int sleepHStart = payload.indexOf("\"sleeptime_h\":");
+    if (sleepHStart != -1) {
+        sleepHStart = payload.indexOf(":", sleepHStart) + 3;  // Ajustar posición al valor
+        String sleeptime_h_str = payload.substring(sleepHStart, payload.indexOf(",", sleepHStart)-1);
+        SerialPrintDebugln("sleeptime_h is: " + sleeptime_h_str);
+        sleeptime_h =  sleeptime_h_str.toInt();
+    } else {
+        writeLogFile("Missing sleeptime_h in response");
+        return false;
+    }
+
+    // Extraer sleeptime_m (manejar espacios antes del valor)
+    int sleepMStart = payload.indexOf("\"sleeptime_m\":");
+    if (sleepMStart != -1) {
+        sleepMStart = payload.indexOf(":", sleepMStart) + 3;  // Ajustar posición al valor
+        String sleeptime_m_str = payload.substring(sleepMStart, payload.indexOf("}", sleepMStart)-1);
+        SerialPrintDebugln("sleeptime_m is: " + sleeptime_m_str);
+        sleeptime_m = sleeptime_m_str.toInt();
+    } else {
+        writeLogFile("Missing sleeptime_m in response");
+        return false;
+    }
+
+    // Log para indicar éxito con los valores extraídos
+    String log = "Parsed permission response successfully. ";
+    log += "releaseFlag: " + String(releaseFlag) + ", ";
+    log += "releaseMode: " + String(releaseMode == FRM ? "FRM" : "DM") + ", ";
+    log += "sleeptime_h: " + String(sleeptime_h) + ", ";
+    log += "sleeptime_m: " + String(sleeptime_m);
+    
+    writeLogFile(log);
+    return true;
 }
 bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
   HTTPClient http;
   String response;
   String action_string;
+  String url;
 
   switch (action) {
     case RELEASE:
       action_string = "/release/";
+      // Construir la URL con la dirección IP, puerto y el número de GPIO
+      url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string + String(idBoia);
       break;
     case PERMISSION:
       action_string = "/permission/";
+      // Construir la URL con la dirección IP, puerto y el número de GPIO
+      url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string + String(idBoia);
       break;
+    case GETTIME:
+      action_string = "/gettime";
+      // Construir la URL con la dirección IP, puerto y el número de GPIO
+      url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string;
+      break;      
     default:
       action_string = "/unknown/";
+      // Construir la URL con la dirección IP, puerto y el número de GPIO
+      url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string + String(idBoia);
       break;
   }
 
-  // Construir la URL con la dirección IP, puerto y el número de GPIO
-  String url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string + String(idBoia);
 
   // Comenzar la conexión HTTP
   http.begin(url);
@@ -1341,18 +1483,36 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
         String payload = http.getString();  // Obtén la respuesta como string
  
         // Llamar a la subfunción para parsear el payload
-        bool parseSuccess = parsePermissionResponse(payload, releaseFlag, releaseMode, sleeptime_h, sleeptime_m);
+        bool parsepermissionSuccess = parsePermissionResponse(payload, releaseFlag, releaseMode, sleeptime_h, sleeptime_m);
+        //writeLogFile("Message parsed. releaseFlag = " + String(releaseFlag) + ", releaseMode = " + String (releaseMode) + ", sleeptime_h = " + String(sleeptime_h) + " and sleeptime_m = " + String(sleeptime_m));
 
         http.end();  // Liberar recursos
-        return parseSuccess;
+        return parsepermissionSuccess;
       } else {
         // Si el código de respuesta no es 200
-        response = "Error in the HTTP request: "+ String(httpResponseCode)+ " "  + String(httpResponseCode);
+        response = "Error in the HTTP request: "+ String(httpResponseCode)+ " "  + http.getString();
         writeLogFile(response);
         http.end();  // Liberar recursos
         return false;
       }
       break;
+    case GETTIME:
+      if (httpResponseCode == 200) {
+        String payload = http.getString();  // Obtén la respuesta como string
+        int year, month, day, hour, minute, second;
+        // Llamar a la subfunción para parsear el payload
+        bool parsetimeSuccess = parseTimeResponse(payload, year, month, day, hour, minute, second);
+        //{"success": true, "current_time": {"year": 2024, "month": 10, "day": 10, "hour": 10, "minute": 40, "second": 34}}
+        http.end();  // Liberar recursos
+        return parsetimeSuccess;
+      } else {
+        // Si el código de respuesta no es 200
+        response = "Error in the HTTP request: "+ String(httpResponseCode)+ " "  + http.getString();
+        writeLogFile(response);
+        http.end();  // Liberar recursos
+        return false;
+      }
+      break;  
     default:
       response = "Unknown action requested: " + String(action) + " - HTTP response code: " + String(httpResponseCode);
       writeLogFile(response);
@@ -1398,17 +1558,40 @@ String getWiFiFailureReason(int status) {
   }
 }
 //------- FUNCTIONS FOR SURFACE SEQUENCE ------------------------------------------------------------------
+void configGPS() {
+  // Comando UBX CFG-NAV5 para configurar 2D fix
+  uint8_t ubxConfig[] = {
+    0xB5, 0x62, 0x06, 0x24, 0x24, 0x00, // Cabecera
+    0x01, 0x00, // Mask: Apply dynamic model and fix mode
+    0x03, 0x00, // Dynamic model: Airborne <1g (se puede cambiar según el uso)
+    0x01, 0x00, // Fix mode: 0x01, 0x00, = 2D only, 0x02,  <-- Cambio aquí 
+    0x00, 0x00, 0x00, 0x00, // Fixed alt
+    0x00, 0x00, 0x00, 0x00, // Fixed alt var
+    0x00, 0x00, 0x00, 0x00, // Min elev, drLimit, pDop, tDop
+    0x00, 0x00, 0x00, 0x00, // pAcc, tAcc, static hold threshold
+    0x00, 0x00, 0x00, 0x00, // Reserved
+    0x00, 0x00, 0x00, 0x00, // Reserved
+    0x00, 0x00, 0x00, 0x00  // Reserved
+  };
+
+  // Enviar el comando UBX al GPS para configurar el modo 2D
+  for (int i = 0; i < sizeof(ubxConfig); i++) {
+    gpsSerial.write(ubxConfig[i]);
+  }
+
+  delay(500);  // Espera para permitir que el GPS procese la configuración
+}
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
   
   //ConnectPeripherals(true, GPS_KIM);  //they are already on, right?
   
   gps = TinyGPSPlus();  // Reset the GPS
+  delay(10);
+  configGPS();
   int gpsState = 0;
   int initialTime = millis();
   gpsFix = false;
-
-  //gpsSerial.begin(GPSBaud);
-  delay(100);
+  
   while (gpsState == 0 && millis() < (maxTimeout + initialTime) && digitalRead(PB_1) == true) {
     SerialPrintDebugln("GPS acquiring data------>");
     while (gpsSerial.available() > 0 && millis() < (maxTimeout + initialTime) && digitalRead(PB_1) == true) {
@@ -1463,7 +1646,7 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
         }
 
         if (gps.time.isValid() && gps.date.isValid() && gps.location.isValid()) {
-          DateTime now2 = DateTime(gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsMinute);  //for the kineisMessage we use the gps epoch time
+          DateTime now2 = DateTime(gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond);  //for the kineisMessage we use the gps epoch time
           SerialPrintDebug("Epoch time: ");
           epochTime = now2.unixtime();
           SerialPrintDebugln(epochTime);
@@ -1941,7 +2124,7 @@ int downloadAllFilesFTP(){  // Downloads all files from the FTP to the SD card
 			int bytes;
 			if ((bytes=tryDownloadFile(source, ftpSizes[i], dest, 3)) < 0){
 			  SerialPrintDebugln("ERROR in file " + String(source));
-			  //writeLogFile("ERROR downloading file "+ String(source));
+			  writeLogFile("ERROR downloading file "+ String(source));
 
 			  filesFailed += 1;
 			}
