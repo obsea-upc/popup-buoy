@@ -21,7 +21,9 @@
 
 WORKING PROGRESS
 1. parametres de KIM transmission - power + elevations i temps d'envio de GPS... passar a sd 
-3. Implement new state 4 amd separe between 4.A (Fast recovery surface mode) and 4.B (drifting surface mode)
+2. Calibrate battey read
+3. What happens if the buoy hits the floor and is accidentally released. State 2 no connect to wifi > 5 times -> check gps
+4. Sincronization between buoy-server-lander
 
 FUTURE IMPROVEMENTS
 1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo 
