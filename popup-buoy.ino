@@ -22,8 +22,6 @@
 WORKING PROGRESS
 1. parametres de KIM transmission - power + elevations i temps d'envio de GPS... passar a sd 
 2. Calibrate battey read
-3. What happens if the buoy hits the floor and is accidentally released. State 2 no connect to wifi > 5 times -> check gps
-4. Sincronization between buoy-server-lander
 
 FUTURE IMPROVEMENTS
 1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo 
@@ -107,7 +105,8 @@ FUTURE IMPROVEMENTS
   enum ActionType {
     RELEASE = 1,
     PERMISSION = 2,
-    GETTIME = 3
+    GETTIME = 3,
+    GETSYNCTIME = 4
   };
   enum ReleaseMode {
     FRM,  // FAST RECOVERY MODE
@@ -131,6 +130,7 @@ FUTURE IMPROVEMENTS
   int maxWIFITimeout;
   int sleepTimeWifiAttempt;
   int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
+  int syncTime;
 
 //------ Definitions for time external RTC + ntp server  ---------------------------------------------------------------
   RTC_DS3231 rtcExt;
@@ -240,12 +240,34 @@ void setup() {
     }
   //------- WIFI (CONFIG) CONNECTION SETUP ---------------------------------------------------------------------------
     if (currentState == 0) {
+      SerialPrintDebugln("RTC Configuration. Push button 1 for NTP sync. (default) or 2 for Lander sync.");
+      SerialPrintDebug("delay 3s ----");
+      delay(3000);
+      SerialPrintDebugln("DONE");
+      pushButtonRefresh(PBState);
       SerialPrintDebug("WIFI SETUP\n  Connecting to: ");
-      SerialPrintDebugln(WIFI_SSID);
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
-
+      switch (PBState){
+        case 1:
+          SerialPrintDebugln(WIFI_SSID);
+          WiFi.begin(WIFI_SSID, WIFI_PASS);
+          break;
+        case 2:
+          SerialPrintDebugln(WIFI_SSID2);
+          WiFi.begin(WIFI_SSID2, WIFI_PASS2);
+          break;
+        case 3:
+          SerialPrintDebugln("ERROR -- button 3 pushed. Changing to state 1");
+          changeStateTo(1);//change to state 1
+          break;
+        default:
+          SerialPrintDebugln(WIFI_SSID2);
+          WiFi.begin(WIFI_SSID2, WIFI_PASS2);
+          PBState = 2;
+          break;
+      }
       SerialPrintDebug("Connecting Wifi...");
-      while (WiFi.status() != WL_CONNECTED) {
+      unsigned long startTime = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 30000) {
         delay(500);
         SerialPrintDebug(".");
       }
@@ -256,22 +278,41 @@ void setup() {
       writeLogFile(time.timestamp(DateTime::TIMESTAMP_FULL));
     }
 
-  //------- TIME UPDATE FROM UDP SERVER --------------------------------------------------------------------
+  //------- TIME UPDATE FROM UDP SERVER OR LANDER --------------------------------------------------------------------
       char date[10] = "hh:mm:ss";
       rtcExt.now().toString(date);
       writeLogFile("The time on the RTC is " + String(date));
           
-    if (currentState == 0) {
+    if (currentState == 0 && PBState == 1 && WiFi.status() == WL_CONNECTED) {
       //sincronise time from NTP server
-      SerialPrintDebugln("obtaining time from NTP server");
+      SerialPrintDebugln("Obtaining time from NTP server");
       timeClient.begin();
       timeClient.update();
       rtcExt.adjust(DateTime(timeClient.getEpochTime()));
-
       
       rtcExt.now().toString(date);
       SerialPrintDebug("time changed in RTC DS3231. current time:");
       SerialPrintDebugln(date);
+
+    } else if (currentState == 0 && PBState == 2 && WiFi.status() == WL_CONNECTED){
+      SerialPrintDebugln("Obtaining time from lander");
+      if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        writeLogFile("Adjustment of RTC time of buoy failed for wrong HTTP request!" );
+      }else{
+        // Ajustar el RTC con los valores obtenidos
+        DateTime newTime(year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander);
+        rtcExt.adjust(newTime);
+        writeLogFile("Adjustment of RTC time with the time Lander done." );
+      }
+      if (!sendHttpGetRequest(idBuoy,GETSYNCTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        writeLogFile("Adjustment of SYNCTIME failed for wrong HTTP request!" );
+      }else{
+        // Ajustar el SYNCTIME con los valores obtenidos
+        EEPROM.write(6, syncTime);
+        EEPROM.commit();
+        delay(50);
+        writeLogFile("Adjustment of SYNCTIME of buoy " +String(idBuoy)+ " done." );
+      }
     }
 
   //------- SD CARD SETUP ----------------------------------------------------------------------------------
@@ -369,9 +410,9 @@ void setup() {
   SerialPrintDebugln("\n---------------------------SETUP COMPLETE--------------------------------\n");
   
   #ifdef SERIAL_DEBUG
-    SerialPrintDebugln("delay 3s --");
+    SerialPrintDebug("delay 3s ----");
     delay(3000);
-    SerialPrintDebugln("delay 3s -- DONE");
+    SerialPrintDebugln("DONE");
     digitalWrite(LED_Y, LOW);
     digitalWrite(LED_G, LOW);
   #endif
@@ -388,19 +429,10 @@ void loop() {
   // State Management
   switch (PBState) {
     case 1:
-      SerialPrintDebugln("01_INITIALISATION PROCEDURE ---->");
-      eepromInitState();  // initialise epprom state to 0
-      delay(10);  //Modify this two deletes to one
-      deleteFile(Log_filename); // Deletes the log file with events. File will be created again during the program progress
-      deleteFile(GPSfilename); //Deletes track file with GPS coordinates. File will be created again during the program progres
-      deleteFile(SD_progress_filename); //Deletes progress file with file send steps. File will be created again during the program progres -> Should start with 1:0
-      createProgressFile();  //create the file starting from 1:0 progress
-      ConnectPeripherals(true, GPS_KIM);
-      configureKIM();      //Configure KIM1
-      SetCounterFailGPSTo_0();
-      SetCounterFailWIFITo_0();
+      SerialPrintDebugln("<---- INITIALISATION PROCEDURE ---->");
+      initializationprocedure();
+      SerialPrintDebugln("<---- INITIALISATION PROCEDURE ----> DONE");
       SleepModeSequence(0, 0, 5,0);
-      SerialPrintDebugln("01_INITIALISATION PROCEDURE ----> DONE");
       break;
     case 2:
       // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 4 TO TEST with coverage yes and 2000 seconds
@@ -412,7 +444,7 @@ void loop() {
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();
       SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state 4 with no coverage.");
-      delay(1000);
+      delay(10000);
       break;
     case 3:
       // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 5 TO TEST
@@ -423,11 +455,8 @@ void loop() {
       SetCoverageStateTo(1);
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();
-      /*char ftpDir[256];
-      sprintf(ftpDir, "/PopUpBuoy_%d", idBuoy);
-      eraseFolderContent(ftpDir);*/
       SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state " + String(currentState) + " with no coverage.");
-      delay(1000);
+      delay(10000);
 
       break;
 
@@ -452,7 +481,6 @@ void loop() {
       changeStateTo(1);//change to state 1    
       break;
     case 1:  //DEPLOYMENT -- Deployment sleep
-      
       writeLogFile("- sleeping for " +  String(sleeptime_s1_h) + " hours and " + String(sleeptime_s1_m) + " minutes." ); //configure sleep (each pop up buoy will have a different time)
       // wait until button is pressed
       SerialPrintDebugln("Waiting for PB_1 to be pressed to start mission (set to sleep for lander installation)");
@@ -479,6 +507,31 @@ void loop() {
       bool buoyReleased;
       int sleepTimeState2_h;
       int sleepTimeState2_m;
+      // --- TRYING TO FIND GPS  ---
+        Counter_FailWIFI=EEPROM.read(5);
+        if (Counter_FailWIFI==0){  //We just try the gps at the first wifi attempt
+          writeLogFile("Trying to find satellites.");
+          if (gpsAcquireSatellites()){
+            writeLogFile("WARNING! Satellites found. Moving to case 4 - DM.");
+            for (int i = 0; i <= 4; i++) {
+              digitalWrite(LED_Y, HIGH);
+              delay(100);
+              digitalWrite(LED_Y, LOW);
+              delay(100);
+            }
+            changeStateTo(4);
+            SleepModeSequence(0, 5, 0, 0);
+            break;
+          }else{
+            writeLogFile("No satellites found. Continue state 2.");
+              for (int i = 0; i <= 4; i++) {
+                digitalWrite(LED_R, HIGH);
+                delay(100);
+                digitalWrite(LED_R, LOW);
+                delay(100);
+              }
+          }
+        }
       // --- DOWNLOADING DATA AND SENDING RELEASE COMMAND  ---  
         if (!connectToRaspWiFi()) {
           buoyReleased = false;
@@ -561,6 +614,9 @@ void loop() {
           Counter_FailWIFI=EEPROM.read(5);
           if(Counter_FailWIFI>=2){
             sleepTimeState2_m = 0;
+            if (sleeptime_h == 0){
+              sleeptime_h =24; //in case no wiffi connect for 3 times (sleeptime_h no initialized)
+            }
             sleepTimeState2_h = sleeptime_h;  //here we set the cycle time 
             IncrementCounterFailWIFI();
             writeLogFile("Not achieved release phase for 3 WiFi attempts or early request, keeping state 2. Going to sleep for " + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
@@ -578,13 +634,10 @@ void loop() {
       break;
 
     case 3:  //RELEASE -- Launch the buoy -- Added to case 2
-      
-      
       delay(10);
       break;
 
     case 4:  //Surface (ocean surface routines)
-
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 4  ---
       // --- CONFIGURING KIM  ---
@@ -845,12 +898,6 @@ void loop() {
         }
 
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---  NOT USED IN LOWBAT_MODE
-        /*if (secondsBeforeNextStatellite > max_sleep_time_s*CRIT_FACTOR) {  // in seconds
-          secondsBeforeNextStatellite = max_sleep_time_s*CRIT_FACTOR;      // to fix the time to sleep to YY min so that even when there is no ARGOS coverage you transmitt for boat recovery
-          writeLogFile("Time to sleep too long. Recovery messages needed. Changing coverage_state to 0 and sleeping for "+ String(max_sleep_time_s*CRIT_FACTOR) +" sec.");
-          SetCoverageStateTo(0);
-        }
-        */
       // --- CHANGING THE BUOY STATE AND SLEEP ---
         if ( Vin_ADC>BAT_CRIT_LEVEL){  //Battery still ok
           writeLogFile("Battery OK again. Changing to state 4 and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
@@ -873,7 +920,6 @@ void loop() {
       // --- INITIALIZING THE STATE 6  ---
       // --- CONFIGURING KIM  ---
         configureKIM();
-        writeLogFile("KIM power changed to 100");
       // --- SENDING REGULAR UPDATED  MESSAGES ---
         adcAcquireData(ADCreadHex);  //acquiring bat for the 1st time
         unsigned long initTime;
@@ -910,7 +956,6 @@ void loop() {
           bool SPP_progress = true;
 
           while (SPP_progress){
-
             secondsBeforeNextStatellite = NextSatellite(gpsLat, gpsLong, aopTable, nbSatsInAopTable, MinElev);
             secondsBeforeNextStatellite -= TIME_LESS_BEFORE_AWAKENING;  // Used to awake before being in range of the satellite
             SetCoverageStateTo(1);                                     // There is coverage so we put it in EEPROM
@@ -999,7 +1044,18 @@ void loop() {
 }
 
 //------- FUNCTIONS FOR BASIC FUNCTIONALITY ---------------------------------------------------------------
-
+void initializationprocedure(){
+  eepromInitState();  // initialise epprom state to 0
+  delay(10);  //Modify this two deletes to one
+  deleteFile(Log_filename); // Deletes the log file with events. File will be created again during the program progress
+  deleteFile(GPSfilename); //Deletes track file with GPS coordinates. File will be created again during the program progres
+  deleteFile(SD_progress_filename); //Deletes progress file with file send steps. File will be created again during the program progres -> Should start with 1:0
+  createProgressFile();  //create the file starting from 1:0 progress
+  ConnectPeripherals(true, GPS_KIM);
+  configureKIM();      //Configure KIM1
+  SetCounterFailGPSTo_0();
+  SetCounterFailWIFITo_0();
+}
 void pushButtonRefresh(int &pushedButton) {
 
   if (digitalRead(PB_1) == false) {
@@ -1149,10 +1205,14 @@ void configureKIM(){
   }
   if(currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5){
     char PWR2[] = "1000";
-    KIM.set_PWR(PWR2, sizeof(PWR2) - 1);  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default). 
+    KIM.set_PWR(PWR2, sizeof(PWR2) - 1);  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
+    delay(delayKIM); 
+    writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
   }else{
     char PWR3[] = "100";
-    KIM.set_PWR(PWR3, sizeof(PWR3) - 1);  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default). 
+    KIM.set_PWR(PWR3, sizeof(PWR3) - 1);  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
+    delay(delayKIM);  
+    writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
   }
   delay(delayKIM);                    // IMPORTANT because by default AT+AFMT=0 and then it sends RAW messages
   KIM.set_AFMT(AFMT, sizeof(AFMT) - 1); 
@@ -1166,7 +1226,6 @@ void configureKIM(){
 }
 
 //------- FUNCTIONS FOR SLEEP SEQUENCE ---------------------------------------------------------------------
-
 void SleepModeSequence(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleepingSecond, int sleepMode) {
   //Disconnect Peripherals
   ConnectPeripherals(false, GPS_KIM);
@@ -1190,6 +1249,7 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
   if (sleeping_time == 0){
     sleeping_time=1;
   }
+  //SD.end();
   esp_sleep_enable_timer_wakeup(sleeping_time * uS_TO_S_FACTOR);
   esp_light_sleep_start(); 
 }
@@ -1221,6 +1281,7 @@ void goToSleepRTC_rel(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleepi
     }
   }
   SerialPrintDebugln("going to sleep");
+  //SD.end();
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_34, 0);  // pin for the external RTC
   esp_deep_sleep_start();
@@ -1230,13 +1291,14 @@ void goToSleepRTC_abs(int8_t sleepingHours) {
 
   DateTime now = rtcExt.now();
   DateTime alarmTime;
+  syncTime = EEPROM.read(6);
 
   if (sleepingHours == 24) {
     // Configurar la alarma para las 9:00 AM de hoy si aún no ha pasado; si no, configurar para las 9:00 AM del día siguiente
-    if (now.hour() < 9) {
-      alarmTime = DateTime(now.year(), now.month(), now.day(), 9, 0, 0);
+    if (now.hour() < syncTime) {
+      alarmTime = DateTime(now.year(), now.month(), now.day(), syncTime, 0, 0);
     } else {
-      alarmTime = DateTime(now.year(), now.month(), now.day(), 9, 0, 0) + TimeSpan(1, 0, 0, 0);
+      alarmTime = DateTime(now.year(), now.month(), now.day(), syncTime, 0, 0) + TimeSpan(1, 0, 0, 0);
     }
   } else {
     // Configurar la alarma para la próxima hora en punto transcurridas las sleepingHours
@@ -1254,6 +1316,7 @@ void goToSleepRTC_abs(int8_t sleepingHours) {
     SerialPrintDebugln(", Mode: Date");
   }
   SerialPrintDebugln("going to sleep");
+  //SD.end();
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_34, 0);  // pin para la alarma del RTC
   esp_deep_sleep_start();
@@ -1457,6 +1520,20 @@ bool parsePermissionResponse(const String &payload, int &releaseFlag, ReleaseMod
     writeLogFile(log);
     return true;
 }
+bool parseSyncTimeResponse(const String& payload) {
+    // Verificar si el campo "sync_time" está presente
+    int syncTimeStart = payload.indexOf("\"sync_time\":");
+    if (syncTimeStart != -1) {
+        syncTimeStart += 12;  // Ajustar posición al valor
+        syncTime = payload.substring(syncTimeStart, payload.indexOf("}", syncTimeStart)).toInt();
+        SerialPrintDebugln("syncTime is " + String(syncTime));
+        writeLogFile("Parsed syncTime successfully. syncTime: " + String(syncTime));
+        return true;
+    } else {
+        writeLogFile("Missing syncTime in response");
+        return false;
+    }
+}
 bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
   HTTPClient http;
   String response;
@@ -1478,7 +1555,12 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
       action_string = "/gettime";
       // Construir la URL con la dirección IP, puerto y el número de GPIO
       url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string;
-      break;      
+      break; 
+    case GETSYNCTIME:
+      action_string = "/getsynctime";
+      // Construir la URL con la dirección IP, puerto y el número de GPIO
+      url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string;
+      break;           
     default:
       action_string = "/unknown/";
       // Construir la URL con la dirección IP, puerto y el número de GPIO
@@ -1508,7 +1590,6 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
         return false;
       }
       break;
-
     case PERMISSION:
       if (httpResponseCode == 200) {
         String payload = http.getString();  // Obtén la respuesta como string
@@ -1550,6 +1631,19 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
         return false;
       }
       break;  
+    case GETSYNCTIME:
+      if (httpResponseCode == 200) {
+        String payload = http.getString();
+        if (!parseSyncTimeResponse(payload)) {
+          writeLogFile("Failed to parse sync_time");
+          return false;
+        }
+        return true;
+      } else {
+        writeLogFile("HTTP GET failed for GETSYNCTIME");
+        return false;
+      }
+      break; 
     default:
       response = "Unknown action requested: " + String(action) + " - HTTP response code: " + String(httpResponseCode);
       writeLogFile(response);
@@ -1618,9 +1712,30 @@ void configGPS() {
 
   delay(500);  // Espera para permitir que el GPS procese la configuración
 }
+bool gpsAcquireSatellites() {
+  ConnectPeripherals(true, GPS_KIM);
+  gpsSerial.begin(GPSBaud);
+  gps = TinyGPSPlus();  // Reset the GPS
+  delay(10);
+  configGPS();
+  unsigned long startTime = millis();  // Marca el tiempo de inicio
+  SerialPrintDebug("GPS acquiring data------>");
+  while (millis() - startTime < 30000 && (digitalRead(PB_1) == true)) {  // Tiempo límite de 30 segundos
+    if (gpsSerial.available() > 0 ) {
+      char c = gpsSerial.read();
+      //SerialPrintDebug(String(c));
+      gps.encode(c);  // Decodificar los datos del GPS
+      if (gps.satellites.isValid() && gps.satellites.value() > 0) {  // Comprobar si hay satélites detectados
+        ConnectPeripherals(false, GPS_KIM);
+        return true;  // Retorna true si encuentra al menos un satélite
+      }
+      //delay(10);
+    }
+  }
+  ConnectPeripherals(false, GPS_KIM);
+  return false;  // Retorna false si no se detectan satélites en 30 segundos
+}
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
-  
-  //ConnectPeripherals(true, GPS_KIM);  //they are already on, right?
   
   gps = TinyGPSPlus();  // Reset the GPS
   delay(10);
@@ -1630,7 +1745,7 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
   gpsFix = false;
   
   while (gpsState == 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
-    SerialPrintDebugln("GPS acquiring data------>");
+    //SerialPrintDebugln("GPS acquiring data------>");
     while (gpsSerial.available() > 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
       if (gps.encode(gpsSerial.read())) {
 
@@ -1644,7 +1759,7 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
           SerialPrintDebug(String(gpsLong,6));
           gpsFix = true;
         } else {
-          SerialPrintDebug(F("INVALID"));
+          //SerialPrintDebug(F("INVALID"));
           gpsState = 0;
         }
 
@@ -1688,7 +1803,7 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
           epochTime = now2.unixtime();
           SerialPrintDebugln(epochTime);
         }
-        delay(1000);
+        //delay(100);
       }
     }
     if (millis() > 5000 && gps.charsProcessed() < 10) {
@@ -1970,7 +2085,7 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
     MinElev,                                                             //< Minimum elevation of passes [0, 90](default 5 deg)
     90.0f,                                                            //< Maximum elevation of passes  [maxElevation >=
                                                                       //< minElevation] (default 90 deg)
-    4.0f,                                                             //< Minimum duration (default 5 minutes)
+    3.0f,                                                             //< Minimum duration (default 5 minutes)
     1000,                                                             //< Maximum number of passes per satellite (default
                                                                       //< 1000)
     5,                                                                //< Linear time margin (in minutes/6months) (default
