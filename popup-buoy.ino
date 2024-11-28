@@ -20,7 +20,7 @@
 
 
 WORKING PROGRESS
-1. parametres de KIM transmission - power + elevations i temps d'envio de GPS... passar a sd 
+1. parametres de KIM transmission - power ¿? necessary?
 2. Calibrate battey read
 
 FUTURE IMPROVEMENTS
@@ -719,7 +719,7 @@ void loop() {
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
           #endif
-          MinElev = stdMinElev;
+          //MinElev = stdMinElev;
           bool SPP_progress = true;
 
           while (SPP_progress){
@@ -845,7 +845,7 @@ void loop() {
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
           #endif  
-          MinElev = critMinElev;
+          //MinElev = critMinElev;
           bool SPP_progress = true;
 
           while (SPP_progress){
@@ -952,7 +952,7 @@ void loop() {
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
           #endif
-          MinElev = stdMinElev;
+          //MinElev = stdMinElev;
           bool SPP_progress = true;
 
           while (SPP_progress){
@@ -2790,6 +2790,12 @@ void getInfoFromConfFile() {
         FRMsleepTime_fail_s = DataFromVariable;
         SerialPrintDebugln("Sleep time at stage 6 when GPS fail: " + String(DataFromVariable) + " seconds");
       }
+
+      if (VariableNameStr == "MinElev") {  // NUEVA VARIABLE FLOAT
+        MinElev = static_cast<float>(DataFromVariable);  // Conversión explícita
+        SerialPrintDebugln("Minimum Elevation: " + String(MinElev));
+      }
+
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
     }
