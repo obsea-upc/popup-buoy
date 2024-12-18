@@ -720,7 +720,6 @@ void loop() {
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
           #endif
-          //MinElev = stdMinElev;
           bool SPP_progress = true;
 
           while (SPP_progress){
@@ -2050,6 +2049,28 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
   memset(hex_latitude, 0, sizeof(hex_latitude));
   memset(hex_epochTime, 0, sizeof(hex_epochTime));
 }
+void updateMinElev() {
+  // Llamada para leer el progreso actual desde el archivo
+  readSuccessFile();
+  
+  // Actualización de MinElev según el valor de RowProgress
+  if (RowProgress >= 1 && RowProgress <= 993) {
+      MinElev = 35.0;
+  } else if (RowProgress >= 994 && RowProgress <= 1986) {
+      MinElev = 30.0;
+  } else if (RowProgress >= 1987 && RowProgress <= 2979) {
+      MinElev = 25.0;
+  } else if (RowProgress >= 2980 && RowProgress <= 3972) {
+      MinElev = 20.0;
+  } else if (RowProgress >= 3973 && RowProgress <= 4965) {
+      MinElev = 15.0;
+  } else if (RowProgress >= 4966) {
+      MinElev = 10.0;
+  } else {
+      // Valor por defecto si RowProgress no es válido
+      MinElev = 0.0;
+  }
+}
 int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable, float MinElev) {
 
   DateTime now = rtcExt.now();
@@ -2075,6 +2096,8 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   } else {
     nextDay += 1;
   }
+
+  updateMinElev();
 
   struct PredictionPassConfiguration_t prepasConfiguration = {
     gpsLat,                                                           //< Geodetic latitude of the beacon (deg.) [-90, 90]
