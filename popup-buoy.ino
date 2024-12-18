@@ -61,7 +61,8 @@ FUTURE IMPROVEMENTS
   KIM KIM(&kimSerial);          //with library
 
 //------ Define Kineis Transmission Parameters ------------------------------------------------------------------------
-  char PWR[] = "1000";  // Rise of power from 500 to 1000 -- These parameters are saved in RAM, not defined anymore
+  char PWR2[10] = "1000";  // Rise of power from 500 to 1000 -- These parameters are saved in RAM, not defined anymore
+  char PWR3[10] = "100";
   char AFMT[] ="1";     // Enable standard kim messages -- These parameters are saved in RAM, not defined anymore
   const int delayKIM = 10;  //between parmeters set
   char kineisMessage[27];  // declared globally to avoid errors
@@ -1204,13 +1205,11 @@ void configureKIM(){
     delay(1000);
   }
   if(currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5){
-    char PWR2[] = "1000";
-    KIM.set_PWR(PWR2, sizeof(PWR2) - 1);  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
+    KIM.set_PWR(PWR2, strlen(PWR2));  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
     delay(delayKIM); 
     writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
   }else{
-    char PWR3[] = "100";
-    KIM.set_PWR(PWR3, sizeof(PWR3) - 1);  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
+    KIM.set_PWR(PWR3, strlen(PWR3));  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
     delay(delayKIM);  
     writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
   }
@@ -2796,6 +2795,15 @@ void getInfoFromConfFile() {
         SerialPrintDebugln("Minimum Elevation: " + String(MinElev));
       }
 
+      if (VariableNameStr == "PWR2") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
+        sprintf(PWR2, "%d", DataFromVariable);
+        SerialPrintDebugln("PWR2: " + String(PWR2));
+      }
+
+      if (VariableNameStr == "PWR3") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
+        sprintf(PWR3, "%d", DataFromVariable);
+        SerialPrintDebugln("PWR3: " + String(PWR3));
+      }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
     }
