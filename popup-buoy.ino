@@ -1,4 +1,4 @@
-/******************************************************************************
+/*******************************************************************************
 *   00_MasterPoopUpBuoy.ino
 *
 *   This file contains the master-code for the PopUpBuoys
@@ -174,6 +174,7 @@ void setup() {
 
   //------- EEPROM DEFINITION ------------------------------------------------------------------------------
     EEPROM.begin(EEPROM_SIZE);
+    initializeEEPROM();
     currentState = EEPROM.read(0);
     SerialPrintDebug("CurrentState of POP_UP_BUOY: ");
     SerialPrintDebugln(currentState);
@@ -321,7 +322,8 @@ void setup() {
     if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
       SerialPrintDebugln("SD INFO");
       //pinMode(19, INPUT_PULLUP); //pullup GPIO2 for SD_MMC mode, you need 1-15kOm resistor connected to GPIO2 and GPIO19
-
+      SD.end();
+      delay(500);
       //Check if SD starts correctly, else exit setup
       if (!SD.begin()) {
         SerialPrintDebugln("  Card Mount Failed");
@@ -2099,7 +2101,7 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
     nextDay += 1;
   }
 
-  MinElev = updateMinElev();
+  //MinElev = updateMinElev();
   writeLogFile("Min. elevation set to: " + String(MinElev));
 
   struct PredictionPassConfiguration_t prepasConfiguration = {
@@ -2205,6 +2207,18 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   writeLogFile(messageLogFile);
 
   return diff;
+}
+void initializeEEPROM() {
+    int storedValue = EEPROM.read(0);
+    
+    if (storedValue == 0xFF) { // Si la EEPROM no ha sido inicializada
+        writeLogFile("EEPROM no ini., saving default value.");
+        EEPROM.write(0, 0);
+        EEPROM.commit();
+        storedValue = 6;
+    }
+    
+    currentState = storedValue;
 }
 void eepromSaveTimeCoverage(int timeCoverage) {
   EEPROM.write(2, (timeCoverage >> 8) & 0xFF);
