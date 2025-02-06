@@ -8,7 +8,6 @@
 
 ///------ OPTIONS TO DEBUG
 #define SERIAL_DEBUG  // comment line to disable Serial prints
-#define LED_DEBUG
 #define SERIAL_DEBUG_BAUDRATE 115200
 
 //------- EEPROM

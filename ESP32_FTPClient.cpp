@@ -723,7 +723,6 @@ int ESP32_FTPClient::DownloadFileToSD(const char * filename, int length, File* d
   FTPserialDebugln("Preparing to download:   [" + String(filename) + "] (size " + String(length) + " bytes)");
 
   //Requesting server to send the file
-
   if (!isConnected()) {
 	  FTPserialDebug("ERROR! FTP not connected");
 	  return -1;
@@ -739,10 +738,7 @@ int ESP32_FTPClient::DownloadFileToSD(const char * filename, int length, File* d
 	  return -2;
   }
 
-
-  int bytes_written=0;
-  
-
+  int bytes_written=0;  
   //wait until client is available
   unsigned long init = millis();
 

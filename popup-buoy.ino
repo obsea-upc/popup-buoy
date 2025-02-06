@@ -132,6 +132,7 @@ FUTURE IMPROVEMENTS
   int sleepTimeWifiAttempt;
   int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
   int syncTime;
+  int fileBlinkLed = false;
 
 //------ Definitions for time external RTC + ntp server  ---------------------------------------------------------------
   RTC_DS3231 rtcExt;
@@ -565,7 +566,7 @@ void loop() {
                 writeLogFile("Connection to FTP failed!");
               }else{
                 digitalWrite(LED_Y, HIGH);
-                if (downloadAllFilesFTP()<0) {
+                if (downloadAllFilesFTP() < 0) {
                   buoyReleased = false; 
                   writeLogFile("Download of FTP files from buoy " +String(idBuoy)+ " failed.");
                 }else{
@@ -2275,7 +2276,6 @@ void SendGPSMessage(int timeSending) {
 int downloadAllFilesFTP(){  // Downloads all files from the FTP to the SD card
     char ftpDir[64];
 
-
     sprintf(ftpDir, "/PopUpBuoy_%d", idBuoy);
     SerialPrintDebug("Downloading data from ");
     SerialPrintDebugln(ftpDir);
@@ -2314,41 +2314,39 @@ int downloadAllFilesFTP(){  // Downloads all files from the FTP to the SD card
 
 
     while (nfiles == FTP_BATCH_FILES ) {
-		SerialPrintDebug("Getting FTP file list (offset " + String(offset)+ ")...");
-		ftp.InitFile("Type A");
-		delay(10);
+      SerialPrintDebug("Getting FTP file list (offset " + String(offset)+ ")...");
+      ftp.InitFile("Type A");
+      delay(10);
 
-		//===================== GetDirContents torna un espai al principi dels noms!!!! " myfile.txt" ============//
-		nfiles = ftp.GetDirContents("", ftpFiles, ftpSizes, FTP_BATCH_FILES, offset, &nextOffset);
-		SerialPrintDebug("After  FTP file list offset=" + String(offset) +  " nextOffset=" + String(nextOffset));
+      //===================== GetDirContents torna un espai al principi dels noms!!!! " myfile.txt" ============//
+      nfiles = ftp.GetDirContents("", ftpFiles, ftpSizes, FTP_BATCH_FILES, offset, &nextOffset);
+      SerialPrintDebug("After  FTP file list offset=" + String(offset) +  " nextOffset=" + String(nextOffset));
 
+      SerialPrintDebugln(" FTP contents: " + String(nfiles) + " files");
 
-		SerialPrintDebugln(" FTP contents: " + String(nfiles) + " files");
+      for ( int i = 0 ; i<nfiles; i++ ){
+        char dest[512];
+        const char* source = ftpFiles[i].c_str();
+        sprintf(dest, "%s/%s", ftpDir, source);
+        int bytes;
+        if ((bytes=tryDownloadFile(source, ftpSizes[i], dest, 3)) < 0){
+          SerialPrintDebugln("ERROR in file " + String(source));
+          writeLogFile("ERROR downloading file "+ String(source));
+          filesFailed += 1;
+        }
+        else if (bytes == 0) {
+          //writeLogFile("File already exists in SD: "+ String(source));
+          filesSkipped += 1;
+        }
+        else {
+          totalBytes += bytes;
+          //writeLogFile("Downloaded file "+ String(source) + ", size=" + String(ftpSizes[i]));
+          filesDownloaded += 1;
+        }
+      }
 
-		for ( int i = 0 ; i<nfiles; i++ ){
-			char dest[512];
-			const char* source = ftpFiles[i].c_str();
-			sprintf(dest, "%s/%s", ftpDir, source);
-			int bytes;
-			if ((bytes=tryDownloadFile(source, ftpSizes[i], dest, 3)) < 0){
-			  SerialPrintDebugln("ERROR in file " + String(source));
-			  writeLogFile("ERROR downloading file "+ String(source));
-
-			  filesFailed += 1;
-			}
-			else if (bytes == 0) {
-				//writeLogFile("File already exists in SD: "+ String(source));
-				filesSkipped += 1;
-			}
-			else {
-			  totalBytes += bytes;
-			  //writeLogFile("Downloaded file "+ String(source) + ", size=" + String(ftpSizes[i]));
-			  filesDownloaded += 1;
-			}
-		}
-
-		offset = nextOffset;
-		totalFiles += nfiles;
+      offset = nextOffset;
+      totalFiles += nfiles;
     }
 
     writeLogFile(" ===> Processed " + String(totalFiles) +" files! downloaded=" +  String(filesDownloaded) + " skipped=" + String(filesSkipped) +  " failed=" + String(filesFailed) +  "<====");
@@ -2429,23 +2427,22 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
 		// Check if download failed
 		if (ret < 0 ) {
 			SerialPrintDebugln("Failed to download file [" + String(source) + "], tries remaining=" + String(tries) + String(" "));
-			delay(500);
+			delay(20);
 			ftp.CloseConnection();
-			delay(200);
+			delay(10);
 			ftp.OpenConnection();
-			delay(200);
+			delay(10);
 			ftp.InitFile("Type A");
-			delay(200);
+			delay(10);
 		  char ftpDir[64];
 		  sprintf(ftpDir, "/PopUpBuoy_%d", idBuoy);
-		  delay(200);
+		  delay(10);
 		  ftp.ChangeWorkDir(ftpDir);
-		  delay(200);
+		  delay(10);
 		}
 	}
-
-  #ifdef LED_DEBUG
-
+  
+  if (fileBlinkLed) {
     if (ret < 0 ){
       digitalWrite(LED_R, LOW);
       delay(200);
@@ -2454,7 +2451,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
       digitalWrite(LED_R, LOW);
       delay(200);
       digitalWrite(LED_R, HIGH);
-    }
+    }  
     else {
       digitalWrite(LED_G, HIGH);
       delay(200);
@@ -2464,7 +2461,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
       delay(200);
       digitalWrite(LED_G, LOW);
     }
-  #endif
+  }
 
 	return ret;
 }
@@ -2843,6 +2840,12 @@ void getInfoFromConfFile() {
       if (VariableNameStr == "PWR3") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
         sprintf(PWR3, "%d", DataFromVariable);
         SerialPrintDebugln("PWR3: " + String(PWR3));
+      }
+
+
+      if (VariableNameStr == "FILE_BLINK_LED") {
+        fileBlinkLed = DataFromVariable;
+        SerialPrintDebugln("Debug FTP file download with LEDs: " + String(DataFromVariable));
       }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
