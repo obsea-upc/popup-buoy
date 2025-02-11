@@ -132,7 +132,7 @@ FUTURE IMPROVEMENTS
   int sleepTimeWifiAttempt;
   int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
   int syncTime;
-  int fileBlinkLed = false;
+  int fileBlinkLed = 0;
 
 //------ Definitions for time external RTC + ntp server  ---------------------------------------------------------------
   RTC_DS3231 rtcExt;
@@ -2442,7 +2442,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
 		}
 	}
   
-  if (fileBlinkLed) {
+  if ( fileBlinkLed == 1) {
     if (ret < 0 ){
       digitalWrite(LED_R, LOW);
       delay(200);
