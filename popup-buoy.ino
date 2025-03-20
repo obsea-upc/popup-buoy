@@ -15,6 +15,7 @@
 *   - Step-UP converter (U3V16F5)
 *   
 *    !!! IMPORTANT - Modify the secrets.h file for this project with your network connection and ThingSpeak channel details !!!
+
 *
 *    SCreations.bcn & Matias Carandell (UPC)
 
@@ -29,6 +30,7 @@ FUTURE IMPROVEMENTS
 
 
 ******************************************************************************/
+//IMPORTANT -- You must install the ESP32 board by Espressif Systems. Version 2.0.14! No newer!
 
 #include "conf.h"
 #include "secrets.h"
@@ -243,7 +245,7 @@ void setup() {
     }
   //------- WIFI (CONFIG) CONNECTION SETUP ---------------------------------------------------------------------------
     if (currentState == 0) {
-      SerialPrintDebugln("RTC Configuration. Push button 1 for NTP sync. (default) or 2 for Lander sync.");
+      SerialPrintDebugln("RTC Configuration. Push button 1 for NTP sync. or 2 for Lander sync. (default)");
       SerialPrintDebug("delay 3s ----");
       delay(3000);
       SerialPrintDebugln("DONE");
@@ -690,21 +692,13 @@ void loop() {
             SendFileKim(fileSendingTime);  // file sent before the GPS data
           } else { // End of datafile or not Found
             writeLogFile("DataFile completely sent or not found. Light sleep for " + String(waitSendingTime) + " to ensure the GPS message is sent at the midle of the coverage.");
-            ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices 
-            delay(10);
             goToSleep(waitSendingTime);
-            ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
-            delay(10);
           }
           SendGPSMessage(timeSending);   // The GPS is sent at the middle of the coverage --> better chance to be received by satellites
           if (fileSendingTime>0 && RowProgress<MaxRowDataFile) {
             SendFileKim(fileSendingTime);  // file sent after the GPS data
           } else {
-            /*ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices 
-            delay(10);
-            goToSleep(waitSendingTime);
-            ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
-            delay(10);*/          // No need to sleep again! Directly to sleep to avid innecessary consumption
+            // No need to sleep again! Directly to sleep to avid innecessary consumption
           }
         }
 
@@ -751,11 +745,7 @@ void loop() {
               //SetCoverageDurationTo_0();
               SetCoverageStateTo(0);
               writeLogFile("SPP ERROR. Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
-              ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices 
-              delay(10);
               goToSleep(Decimal_CoverageDuration);
-              ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
-              delay(10);
               SPP_progress=true;
             }
           }
@@ -936,13 +926,6 @@ void loop() {
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           writeLogFile("Sending updated GPS position");
           SendGPSMessage(timeSending);
-          //goToSleep(FRMsleepTime_s);  //ligh NO TURN OFF THE GPS NOR KIM.  OJO que ja portara 30 segons dormint (pujar 30 mes?)
-          /*if(!gpsFix){ 
-            writeLogFile("GPS not found. Sleeping for " + String(FRMsleepTime_fail_s) + " seconds.");  
-            ConnectPeripherals(false, GPS_KIM);
-            goToSleep(FRMsleepTime_fail_s); // apagar perifericos --> GPS KIM
-            ConnectPeripherals(true, GPS_KIM);
-          }*/
         } 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
         if (gpsFix) {          
@@ -983,11 +966,7 @@ void loop() {
               //SetCoverageDurationTo_0();
               SetCoverageStateTo(0);
               writeLogFile("SPP ERROR. Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
-              ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices 
-              delay(10);
               goToSleep(Decimal_CoverageDuration);
-              ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
-              delay(10);
               SPP_progress=true;
             }
           }
@@ -1251,9 +1230,33 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
   if (sleeping_time == 0){
     sleeping_time=1;
   }
-  //SD.end();
-  esp_sleep_enable_timer_wakeup(sleeping_time * uS_TO_S_FACTOR);
-  esp_light_sleep_start(); 
+  //End all SD process
+    SD.end();
+  //Turn off peripherals (except for case 6)
+   if (currentState!=6){
+      ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices (not in case &)
+      delay(5);
+      ConnectPeripherals(false, SD_card);
+      delay(5);
+    }
+  //Gotoleep light
+    esp_sleep_enable_timer_wakeup(sleeping_time * uS_TO_S_FACTOR);
+    esp_light_sleep_start(); 
+  //Turn on peripherals (except for case 6)
+    if (currentState!=6){
+      ConnectPeripherals(true, GPS_KIM); 
+      delay(5);
+      ConnectPeripherals(true, SD_card);
+      delay(5);
+    }
+  //initialize again SD
+    if (!SD.begin()) {
+          SerialPrintDebugln("Card Mount Failed");
+          return;   //ojo amb aquest return --> posar while?
+    }else{
+      SerialPrintDebugln("SD card open again");
+    }
+  delay(10);
 }
 void goToSleepRTC_rel(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleepingSecond) {
 
@@ -1972,28 +1975,18 @@ void adcAcquireData(char *ADCreadHex) {
   dtostrf(Vin_ADC, 6, 5, buffer);
   SerialPrintDebug(buffer);
   SerialPrintDebugln(" V");
+  writeLogFile("Vin (up): " + String(buffer) + " V");
 }
 bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
     currentState = EEPROM.read(0);
-    if (currentState!=6){
-      ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
-    }
-    //update gps and mask it again
-    delay(10);
     if (KIM.send_data(kineisMessage, sizeof(kineisMessage) - 1) == OK_KIM) {
       delay(INTERVAL_SEND_MS);
       writeLogFile(" Kim MSG_OK");
     } else {
       writeLogFile(" Kim MSG_ERR");
     }
-
-    if (currentState!=6){
-      ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices (not in case &)
-    }
-    
-    delay(10);
     goToSleep((waitRepeat-INTERVAL_SEND_MS)/1000);
   }
   return true;
@@ -2519,10 +2512,6 @@ int DownloadFile(const char* source, int size, const char* dest){ //Downloads a 
 }
 //------- FUNCTIONS FOR DATA SENDING -----------------------------------------------------------------------
 void SendDataMessage() {
-  
-  ConnectPeripherals(true, GPS_KIM);  // turn on power to all devices
-  
-  delay(10);
   writeLogFile("Sending : " + String(kineisdataMessage));
   if (KIM.send_data(kineisdataMessage, sizeof(kineisdataMessage) - 1) == OK_KIM) {
     delay(INTERVAL_SEND_MS);
@@ -2530,10 +2519,6 @@ void SendDataMessage() {
   } else {
     writeLogFile("Kim MSG_ERR");
   }
-  
-  ConnectPeripherals(false, GPS_KIM);  // turn on power to all devices
-
-  delay(10);
   goToSleep((INTERVAL_MS-INTERVAL_SEND_MS)/1000);
 }
 void readSuccessFile() {
