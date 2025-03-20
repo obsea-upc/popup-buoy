@@ -4,7 +4,7 @@
 *   This file contains the master-code for the PopUpBuoys
 *
 *   HARDWARE:
-*   - ESP32-Wroom-32 (EZSBC)
+*   - ESP32-Wroom-32 (EZSBC).
 *   - MicroSD Card Adapter
 *   - x3 leds
 *   - x3 push button
