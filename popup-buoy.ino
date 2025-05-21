@@ -429,6 +429,10 @@ void setup() {
 void loop() {
 
     Serial.println("loop init");
+    Serial.println("Deleting olde files");
+    deleteFilesInFolder("/PopUpBuoy_1");
+    deleteFilesInFolder("/PopUpBuoy_2");
+    deleteFilesInFolder("/PopUpBuoy_3");
 
     Serial.println("Connect to wifi");
       if (!connectToRaspWiFi()) {
@@ -464,9 +468,7 @@ void loop() {
       Serial.println("Test ended, sending http for end");
       endDistanceTest();
       Serial.println("all done");
-      deleteFilesInFolder("/PopUpBuoy_1");
-      deleteFilesInFolder("/PopUpBuoy_2");
-      deleteFilesInFolder("/PopUpBuoy_3");
+
 }
 
 //------- FUNCTIONS FOR BASIC FUNCTIONALITY ---------------------------------------------------------------
@@ -2002,8 +2004,8 @@ int DownloadFile(const char* source, int size, const char* dest){ //Downloads a 
 		SerialPrintDebugln("File [" + String(source) + "] already exists in SD! skipping");
 		return 0;
 	}
-  int timeout = size/20;
-  timeout = max(1000, timeout);
+  int timeout = size/2000;
+  timeout = min(2000, timeout);
 	SerialPrintDebug("Downloading [" + String(source) + "] to SD (FTP size=" + String(size) + ") setting timeout to " + String(timeout) + " msecs ");
 	File outputfile = SD.open(dest, FILE_WRITE);
 	if (!outputfile) {
@@ -2461,7 +2463,7 @@ void deleteFilesInFolder(const char* folderPath) {
 
   File entry;
   while ((entry = dir.openNextFile())) {
-    String name = entry.name();
+    String name = String(folderPath) + "/" +  entry.name();
     if (entry.isDirectory()) {
       // Recursively delete contents inside subfolders
       deleteFilesInFolder(name.c_str());

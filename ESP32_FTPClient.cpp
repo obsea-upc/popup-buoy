@@ -26,11 +26,11 @@
 
 
 #ifdef FTP_SERIAL_DEBUG
-  #define FTPserialDebug Serial.print
-  #define FTPserialDebugln Serial.println
+#define FTPserialDebug Serial.print
+#define FTPserialDebugln Serial.println
 #else
-  #define FTPserialDebug
-  #define FTPserialDebugn
+#define FTPserialDebug
+#define FTPserialDebugn
 #endif
 
 
@@ -63,8 +63,7 @@ WiFiClient* ESP32_FTPClient::GetDataClient() {
 }
 
 bool ESP32_FTPClient::isConnected() {
-  if (!_isConnected)
-  {
+  if (!_isConnected) {
     FTPerr("FTP error: ");
     FTPerr(outBuf);
     FTPerr("\n");
@@ -73,15 +72,15 @@ bool ESP32_FTPClient::isConnected() {
   return _isConnected;
 }
 
-void ESP32_FTPClient::GetLastModifiedTime(const char  * fileName, char* result) {
+void ESP32_FTPClient::GetLastModifiedTime(const char* fileName, char* result) {
   FTPdbgn("Send MDTM");
   if (!isConnected()) return;
   client.print(F("MDTM "));
   client.println(F(fileName));
-  GetFTPAnswer (result, 4);
+  GetFTPAnswer(result, 4);
 }
 
-void ESP32_FTPClient::WriteClientBuffered(WiFiClient* cli, unsigned char * data, int dataLength) {
+void ESP32_FTPClient::WriteClientBuffered(WiFiClient* cli, unsigned char* data, int dataLength) {
   if (!isConnected()) return;
 
   size_t clientCount = 0;
@@ -99,16 +98,17 @@ void ESP32_FTPClient::WriteClientBuffered(WiFiClient* cli, unsigned char * data,
   }
 }
 
-bool ESP32_FTPClient::GetFTPAnswer (char* result, int offsetStart) {
+bool ESP32_FTPClient::GetFTPAnswer(char* result, int offsetStart) {
   char thisByte;
   outCount = 0;
 
   unsigned long _m = millis();
-  while (!client.available() && millis() < _m + timeout) delay(1);
+  while (!client.available() && millis() < _m + timeout)
+    ;  //delay(1);
 
-  if ( !client.available()) {
-    memset( outBuf, 0, sizeof(outBuf) );
-    strcpy( outBuf, "Offline");
+  if (!client.available()) {
+    memset(outBuf, 0, sizeof(outBuf));
+    strcpy(outBuf, "Offline");
 
     _isConnected = false;
     isConnected();
@@ -129,12 +129,11 @@ bool ESP32_FTPClient::GetFTPAnswer (char* result, int offsetStart) {
     }*/
 
 
-  if (outBuf[0] == '4' || outBuf[0] == '5' ) {
+  if (outBuf[0] == '4' || outBuf[0] == '5') {
     _isConnected = false;
     isConnected();
     return true;
-  }
-  else {
+  } else {
     _isConnected = true;
   }
 
@@ -153,13 +152,13 @@ bool ESP32_FTPClient::GetFTPAnswer (char* result, int offsetStart) {
   return true;
 }
 
-void ESP32_FTPClient::WriteData (unsigned char * data, int dataLength) {
+void ESP32_FTPClient::WriteData(unsigned char* data, int dataLength) {
   FTPdbgn(F("Writing"));
   if (!isConnected()) return;
   WriteClientBuffered(&dclient, &data[0], dataLength);
 }
 
-void ESP32_FTPClient::CloseFile () {
+void ESP32_FTPClient::CloseFile() {
   FTPdbgn(F("Close File"));
   dclient.stop();
 
@@ -168,7 +167,7 @@ void ESP32_FTPClient::CloseFile () {
   GetFTPAnswer();
 }
 
-void ESP32_FTPClient::Write(const char * str) {
+void ESP32_FTPClient::Write(const char* str) {
   FTPdbgn(F("Write File"));
   if (!isConnected()) return;
 
@@ -184,16 +183,13 @@ void ESP32_FTPClient::CloseConnection() {
 int ESP32_FTPClient::OpenConnection() {
   FTPdbg(F("Connecting to: "));
   FTPdbgn(serverAdress);
-  if ( client.connect(serverAdress, port, timeout) )
-  {
+  if (client.connect(serverAdress, port, timeout)) {
     FTPdbgn(F("Command connected"));
-  }
-  else 
-  {
+  } else {
     return -1;
   }
   FTPserialDebug("Welcome message: ");
-  delay (100);
+  delay(100);
   GetFTPAnswer();
   FTPserialDebugln(outBuf);
 
@@ -201,7 +197,7 @@ int ESP32_FTPClient::OpenConnection() {
   FTPdbgn("Send USER");
   client.print(F("USER "));
   client.println(F(userName));
-  delay (100);
+  delay(100);
   GetFTPAnswer();
   FTPserialDebug("Send User Response: ");
   FTPserialDebugln(outBuf);
@@ -210,7 +206,7 @@ int ESP32_FTPClient::OpenConnection() {
   FTPdbgn("Send PASSWORD");
   client.print(F("PASS "));
   client.println(F(passWord));
-  delay (100);
+  delay(100);
   GetFTPAnswer();
   FTPserialDebug("Send PASSWORD Response: ");
   FTPserialDebugln(outBuf);
@@ -239,7 +235,7 @@ void ESP32_FTPClient::RenameFile(char* from, char* to) {
   GetFTPAnswer();
 }
 
-void ESP32_FTPClient::NewFile (const char* fileName) {
+void ESP32_FTPClient::NewFile(const char* fileName) {
   FTPdbgn("Send STOR");
   if (!isConnected()) return;
   client.print(F("STOR "));
@@ -247,20 +243,18 @@ void ESP32_FTPClient::NewFile (const char* fileName) {
   GetFTPAnswer();
 }
 
-void ESP32_FTPClient::SetPassive() { //SC-2022
+void ESP32_FTPClient::SetPassive() {  //SC-2022
   FTPdbgn("Send PASV");
   client.println(F("PASV"));
   GetFTPAnswer();
-
 }
 
-void ESP32_FTPClient::SendType(const char* type) { //SC-2022
+void ESP32_FTPClient::SendType(const char* type) {  //SC-2022
   FTPdbgn("Send TYPE");
   if (!isConnected()) return;
   FTPdbgn(type);
   client.println(F(type));
   GetFTPAnswer();
-
 }
 
 void ESP32_FTPClient::InitFile(const char* type) {
@@ -282,13 +276,13 @@ void ESP32_FTPClient::InitFile(const char* type) {
   GetFTPAnswer();
   FTPserialDebug("Send PASV Response: ");
   FTPserialDebugln(outBuf);
-  char *tStr = strtok(outBuf, "(,");
+  char* tStr = strtok(outBuf, "(,");
   int array_pasv[6];
-  for ( int i = 0; i < 6; i++) {
+  for (int i = 0; i < 6; i++) {
     tStr = strtok(NULL, "(,");
     if (tStr == NULL) {
       FTPdbgn(F("Bad PASV Answer"));
-      FTPserialDebugln("fucked communication");// Stevie
+      FTPserialDebugln("fucked communication");  // Stevie
       CloseConnection();
       return;
     }
@@ -308,7 +302,7 @@ void ESP32_FTPClient::InitFile(const char* type) {
   }
 }
 
-void ESP32_FTPClient::AppendFile (char* fileName) {
+void ESP32_FTPClient::AppendFile(char* fileName) {
   FTPdbgn("Send APPE");
   if (!isConnected()) return;
   client.print(F("APPE "));
@@ -316,7 +310,7 @@ void ESP32_FTPClient::AppendFile (char* fileName) {
   GetFTPAnswer();
 }
 
-void ESP32_FTPClient::ChangeWorkDir(const char * dir) {
+void ESP32_FTPClient::ChangeWorkDir(const char* dir) {
 
   FTPdbgn("Send CWD");
   if (!isConnected()) return;
@@ -325,7 +319,7 @@ void ESP32_FTPClient::ChangeWorkDir(const char * dir) {
   GetFTPAnswer();
 }
 
-void ESP32_FTPClient::DeleteFile(const char * file) {
+void ESP32_FTPClient::DeleteFile(const char* file) {
   FTPdbgn("Send DELE");
   if (!isConnected()) return;
   client.print(F("DELE "));
@@ -333,7 +327,7 @@ void ESP32_FTPClient::DeleteFile(const char * file) {
   GetFTPAnswer();
 }
 
-void ESP32_FTPClient::MakeDir(const char * dir) {
+void ESP32_FTPClient::MakeDir(const char* dir) {
   FTPdbgn("Send MKD");
   if (!isConnected()) return;
   client.print(F("MKD "));
@@ -343,8 +337,8 @@ void ESP32_FTPClient::MakeDir(const char * dir) {
 
 
 
-void ESP32_FTPClient::ContentList(const char * dir, String * list) {
-  char _resp[ sizeof(outBuf) ];
+void ESP32_FTPClient::ContentList(const char* dir, String* list) {
+  char _resp[sizeof(outBuf)];
   uint16_t _b = 0;
   //String temp_list[128]; //Hi ha un problema amb el pass by reference de list. la funcio nomes passa list[4] quan ha estat definit a list[128] menjant-se info
 
@@ -364,11 +358,11 @@ void ESP32_FTPClient::ContentList(const char * dir, String * list) {
 
 
   unsigned long _m = millis();
-  while ( !dclient.available() && millis() < _m + timeout) delay(1);
+  while (!dclient.available() && millis() < _m + timeout) delay(1);
 
   while (dclient.available()) {
 
-    if ( _b < 128 ) {
+    if (_b < 128) {
       list[_b] = dclient.readStringUntil('\n');
       //temp_list[_b]= list[_b];
       FTPserialDebugln("File " + String(_b) + ":" + list[_b]);
@@ -392,44 +386,41 @@ void ESP32_FTPClient::ContentList(const char * dir, String * list) {
 //// type=file;size=7386;modify=20231115215840;UNIX.mode=0644;UNIX.uid=1000;UNIX.gid=1001;unique=b302g21647; crab2.jpg
 
 void parseFileInfo(String input, String* type, String* filename, uint32_t* size) {
-    char *token;
-    char *size_str = NULL;
-    char* file_str = NULL;
-    char* type_str = NULL;
-    // Copy the input string because strtok modifies the string
-    char inputCopy[512];
-    strcpy(inputCopy, input.c_str());
+  char* token;
+  char* size_str = NULL;
+  char* file_str = NULL;
+  char* type_str = NULL;
+  // Copy the input string because strtok modifies the string
+  char inputCopy[512];
+  strcpy(inputCopy, input.c_str());
 
 
-    token = strtok(inputCopy, ";");
-    while (token != NULL) {
-        // Check for the 'type', 'size', and 'filename' fields
-        if (strstr(token, "type=") != NULL) {
-            type_str = strchr(token, '=') + 1;
-        }
-        else if (strstr(token, "size=") != NULL) {  // File size
-            size_str = strchr(token, '=') + 1;
-        }
-        else if (strstr(token, "sizd=") != NULL) {  // directory size
-            size_str = strchr(token, '=') + 1;
-        }
-        else if (strchr(token, ' ') != NULL) {
-            // 'filename' field (contains space)
-        	token++;
-            file_str = token;
-            break;
-        }
-        token = strtok(NULL, ";");
+  token = strtok(inputCopy, ";");
+  while (token != NULL) {
+    // Check for the 'type', 'size', and 'filename' fields
+    if (strstr(token, "type=") != NULL) {
+      type_str = strchr(token, '=') + 1;
+    } else if (strstr(token, "size=") != NULL) {  // File size
+      size_str = strchr(token, '=') + 1;
+    } else if (strstr(token, "sizd=") != NULL) {  // directory size
+      size_str = strchr(token, '=') + 1;
+    } else if (strchr(token, ' ') != NULL) {
+      // 'filename' field (contains space)
+      token++;
+      file_str = token;
+      break;
     }
+    token = strtok(NULL, ";");
+  }
 
-    // Erase carriage return at the end
-	if (file_str[strlen(file_str) -1] == '\r') {
-	  file_str[strlen(file_str) -1] = 0;
-	}
-	// Convert size string to integer
-	*size = atoi(size_str);
-	*filename = String(file_str);
-	*type = String(type_str);
+  // Erase carriage return at the end
+  if (file_str[strlen(file_str) - 1] == '\r') {
+    file_str[strlen(file_str) - 1] = 0;
+  }
+  // Convert size string to integer
+  *size = atoi(size_str);
+  *filename = String(file_str);
+  *type = String(type_str);
 }
 
 
@@ -444,8 +435,8 @@ void parseFileInfo(String input, String* type, String* filename, uint32_t* size)
  *    buffsize: size of filenames and sizes arrays
  *    offset: ignore first x entries
  */
-int ESP32_FTPClient::GetDirContents(const char* dir, String* filenames, uint32_t* sizes, int buffsize, int offset, int* nextOffset){
-  char _resp[ sizeof(outBuf) ];
+int ESP32_FTPClient::GetDirContents(const char* dir, String* filenames, uint32_t* sizes, int buffsize, int offset, int* nextOffset) {
+  char _resp[sizeof(outBuf)];
   uint16_t i = 0;
 
   FTPdbgn("Send MLSD");
@@ -458,9 +449,9 @@ int ESP32_FTPClient::GetDirContents(const char* dir, String* filenames, uint32_t
 
   // Timeout
   unsigned long _m = millis();
-  while ( !dclient.available() && millis() < _m + timeout) delay(1);
+  while (!dclient.available() && millis() < _m + timeout) delay(1);
 
-  int fileCount = 0;  // processed files
+  int fileCount = 0;     // processed files
   int skippedFiles = 0;  // files skipped
 
 
@@ -469,28 +460,26 @@ int ESP32_FTPClient::GetDirContents(const char* dir, String* filenames, uint32_t
     String buff;
     buff = dclient.readStringUntil('\n');
     FTPserialDebug("Iteration " + String(i) + "...");
-    if ( fileCount < buffsize ) {
+    if (fileCount < buffsize) {
       if (skippedFiles < offset) {
-    	  // Skip first n lines
-    	    FTPserialDebug("Skip by offset...");
-    	    skippedFiles++;
+        // Skip first n lines
+        FTPserialDebug("Skip by offset...");
+        skippedFiles++;
 
       } else {
-          String type;
-		  parseFileInfo(buff, &type, &filenames[fileCount], &sizes[fileCount]);
+        String type;
+        parseFileInfo(buff, &type, &filenames[fileCount], &sizes[fileCount]);
 
-		  if ( type.equals("cdir") || type.equals("pdir") ) {
-			  skippedFiles++;
-			  FTPserialDebug("Skip " + type);
-		  }
-		  else {
-			 FTPserialDebug("PROCESSING FILE " + filenames[fileCount]);
-			 fileCount++;
-		  }
+        if (type.equals("cdir") || type.equals("pdir")) {
+          skippedFiles++;
+          FTPserialDebug("Skip " + type);
+        } else {
+          FTPserialDebug("PROCESSING FILE " + filenames[fileCount]);
+          fileCount++;
+        }
       }
-    }
-    else {
-    	FTPserialDebug("skip by buffsize ");
+    } else {
+      FTPserialDebug("skip by buffsize ");
     }
     i++;
     FTPserialDebugln("");
@@ -502,8 +491,8 @@ int ESP32_FTPClient::GetDirContents(const char* dir, String* filenames, uint32_t
 
 
 
-void ESP32_FTPClient::ContentListWithListCommand(const char * dir, String * list) {
-  char _resp[ sizeof(outBuf) ];
+void ESP32_FTPClient::ContentListWithListCommand(const char* dir, String* list) {
+  char _resp[sizeof(outBuf)];
   uint16_t _b = 0;
 
 
@@ -520,42 +509,37 @@ void ESP32_FTPClient::ContentListWithListCommand(const char * dir, String * list
   //FTPdbgn(resp_string);
 
   unsigned long _m = millis();
-  while ( !dclient.available() && millis() < _m + timeout) delay(1);
+  while (!dclient.available() && millis() < _m + timeout) delay(1);
 
-  while (dclient.available())
-  {
-    if ( _b < 128 )
-    {
+  while (dclient.available()) {
+    if (_b < 128) {
       String tmp = dclient.readStringUntil('\n');
       list[_b] = tmp.substring(tmp.lastIndexOf(" ") + 1, tmp.length());
       //FTPdbgn(String(_b) + ":" + tmp);
       _b++;
     }
   }
-
 }
 
-void ESP32_FTPClient::DownloadString(const char * filename, String &str) {
+void ESP32_FTPClient::DownloadString(const char* filename, String& str) {
   FTPdbgn("Send RETR");
   if (!isConnected()) return;
   client.print(F("RETR "));
   client.println(F(filename));
 
-  char _resp[ sizeof(outBuf) ];
+  char _resp[sizeof(outBuf)];
 
   GetFTPAnswer(_resp);
 
   unsigned long _m = millis();
-  while ( !GetDataClient()->available() && millis() < _m + timeout) delay(1);
+  while (!GetDataClient()->available() && millis() < _m + timeout) delay(1);
 
-  while ( GetDataClient()->available() )
-  {
+  while (GetDataClient()->available()) {
     str += GetDataClient()->readString();
   }
-
 }
 
-void ESP32_FTPClient::DownloadFile(const char * filename, unsigned char * buf, size_t length, bool printUART ) {
+void ESP32_FTPClient::DownloadFile(const char* filename, unsigned char* buf, size_t length, bool printUART) {
   FTPserialDebug("Preparing to download:   '");
   FTPserialDebug(filename);
   FTPserialDebug("  size  ");
@@ -566,7 +550,7 @@ void ESP32_FTPClient::DownloadFile(const char * filename, unsigned char * buf, s
   client.print(F("RETR "));
   client.println(F(filename));
 
-  char _resp[ sizeof(outBuf) ];
+  char _resp[sizeof(outBuf)];
   GetFTPAnswer(_resp);
 
   char _buf[2];
@@ -574,13 +558,13 @@ void ESP32_FTPClient::DownloadFile(const char * filename, unsigned char * buf, s
 
   //wait until client is available
   unsigned long _m = millis();
-  while ( !dclient.available() && millis() < _m + timeout){
+  while (!dclient.available() && millis() < _m + timeout) {
     delay(1);
   }
 
   while (dclient.available()) {
     FTPserialDebugln("Alles good");
-    if ( !printUART ) {
+    if (!printUART) {
       //dclient.readBytes(buf, length); //original code
       FTPserialDebug("inside first");
       dclient.readBytes(buf2, 1024);
@@ -592,26 +576,24 @@ void ESP32_FTPClient::DownloadFile(const char * filename, unsigned char * buf, s
       //}
       FTPserialDebugln("finished");
 
-    }
-    else {
-      for (size_t _b = 0; _b < length; _b++ ) {
+    } else {
+      for (size_t _b = 0; _b < length; _b++) {
         FTPserialDebug("inside for");
         FTPserialDebugln(_b);
         dclient.readBytes(_buf, 1);
         FTPserialDebug(_buf[0], HEX);
       }
     }
-    for (int j = 0; j < 1024; j++ ) {
+    for (int j = 0; j < 1024; j++) {
       FTPserialDebug(buf2[j], HEX);
-
     }
     FTPserialDebugln("DONE");
   }
 }
 
-void ESP32_FTPClient::DownloadFileAndSaveToSD(const char * filename, unsigned char * buf, size_t length ) {
+void ESP32_FTPClient::DownloadFileAndSaveToSD(const char* filename, unsigned char* buf, size_t length) {
 
- /* DownloadFileAndSaveToSD
+  /* DownloadFileAndSaveToSD
   *   This function is intended to be used to download large files and directly save them in th SD
   *   It downloads packets of 1024 bytes and sequantialy stores them in the file
   *   arguments:
@@ -632,21 +614,21 @@ void ESP32_FTPClient::DownloadFileAndSaveToSD(const char * filename, unsigned ch
 
 
   // create file
-  FTPserialDebug("Creating " );
+  FTPserialDebug("Creating ");
   FTPserialDebug(filename);
   FTPserialDebugln("in SD");
 
   File downloaded_file;
 
   downloaded_file = SD.open(filename, FILE_WRITE);  //filename is the file name to be created and FILE_WRITE is a command to create file.
-  if(downloaded_file){
-  // the file has been opened correctly
+  if (downloaded_file) {
+    // the file has been opened correctly
     FTPserialDebug(filename);
-    FTPserialDebugln(" has been opened correctly " );
+    FTPserialDebugln(" has been opened correctly ");
     downloaded_file.close();  //Closing the file
-  }else{
+  } else {
     FTPserialDebug(filename);
-    FTPserialDebugln(" has NOT been opened correctly " );
+    FTPserialDebugln(" has NOT been opened correctly ");
     downloaded_file.close();  //Closing the file
   }
 
@@ -654,13 +636,13 @@ void ESP32_FTPClient::DownloadFileAndSaveToSD(const char * filename, unsigned ch
   //check if file was properly created
   if (SD.exists(filename)) {
     FTPserialDebug(filename);
-    FTPserialDebugln(" exists in SD " );
+    FTPserialDebugln(" exists in SD ");
   } else {
     FTPserialDebug(filename);
-    FTPserialDebugln(" does NOT exist in SD" );
+    FTPserialDebugln(" does NOT exist in SD");
   }
 
-  FTPserialDebug("Opening " );
+  FTPserialDebug("Opening ");
   FTPserialDebugln(filename);
   // write in files
   downloaded_file = SD.open(filename, FILE_WRITE);
@@ -672,33 +654,32 @@ void ESP32_FTPClient::DownloadFileAndSaveToSD(const char * filename, unsigned ch
   client.print(F("RETR "));
   client.println(F(filename));
 
-  char _resp[ sizeof(outBuf) ];
+  char _resp[sizeof(outBuf)];
   GetFTPAnswer(_resp);
 
-  int bytes_written=0;
+  int bytes_written = 0;
 
 
   //wait until client is available
   unsigned long _m = millis();
-  while ( !dclient.available() && millis() < _m + timeout){
+  while (!dclient.available() && millis() < _m + timeout) {
     delay(1);
-
   }
 
-  int loop_counter=0;
+  int loop_counter = 0;
 
   while (dclient.available()) {
     FTPserialDebug("Client is availiable--  ");
     FTPserialDebugln(dclient.available());
 
     FTPserialDebug("receiving from client  --");
-    int16_t nb = dclient.readBytes((uint8_t*)inBuffer, FTP_BUF_SIZE); // read from the wifi connection
-    if( nb > 0 ){
+    int16_t nb = dclient.readBytes((uint8_t*)inBuffer, FTP_BUF_SIZE);  // read from the wifi connection
+    if (nb > 0) {
       // FTPserialDebugln( millis() << " " << nb << endl;
-      bytes_written=downloaded_file.write((uint8_t*) inBuffer, nb );
+      bytes_written = downloaded_file.write((uint8_t*)inBuffer, nb);
       bytesTransfered += nb;
     }
-    loop_counter=loop_counter+1;
+    loop_counter = loop_counter + 1;
 
     FTPserialDebug("CLIENT DBG: loop iteration: ");
     FTPserialDebug(loop_counter);
@@ -711,71 +692,58 @@ void ESP32_FTPClient::DownloadFileAndSaveToSD(const char * filename, unsigned ch
   downloaded_file.close();  //Closing the file
   FTPserialDebug("DONE downloading ");
   FTPserialDebugln(filename);
-
-
 }
 
 
 /*
  *  Return codes: 0 success, -1 FTP not connected, -2 ERROR in FTP command, -3 Timeout
  */
-int ESP32_FTPClient::DownloadFileToSD(const char * filename, int length, File* destination, int file_timeout) {
+int ESP32_FTPClient::DownloadFileToSD(const char* filename, int length, File* destination, int file_timeout) {
   FTPserialDebugln("Preparing to download:   [" + String(filename) + "] (size " + String(length) + " bytes)");
 
   //Requesting server to send the file
   if (!isConnected()) {
-	  FTPserialDebug("ERROR! FTP not connected");
-	  return -1;
+    FTPserialDebug("ERROR! FTP not connected");
+    return -1;
   }
 
   char cmd[256];
   sprintf(cmd, "RETR %s\0", filename);
   client.println(cmd);
-  char _resp[ sizeof(outBuf) ];
+  char _resp[sizeof(outBuf)];
 
   if (!GetFTPAnswer(_resp)) {
-	  FTPserialDebug("ERROR in FTP command");
-	  return -2;
+    FTPserialDebug("ERROR in FTP command");
+    return -2;
   }
 
-  int bytes_written=0;  
+  int bytes_written = 0;
   //wait until client is available
   unsigned long init = millis();
 
   int loop_counter = 0;
   bool timeout_flag = false;
-  while ( bytes_written < length ) {
+  while (bytes_written < length) {
     while (!dclient.available()) {
       // If client is not available, wait until it is
-      delay(1);
+      // delay(1);
       if (millis() > init + file_timeout) {
         // If we waited too long (timeout expired) break the while
         FTPserialDebug("ERROR  FTP TIMEOUT");
         return -3;
       }
     }
-	
-    int16_t nb = dclient.readBytes((uint8_t*)inBuffer, FTP_BUF_SIZE); // read from the wifi connection
+
+    int16_t nb = dclient.readBytes((uint8_t*)inBuffer, FTP_BUF_SIZE);  // read from the wifi connection
     FTPserialDebug(" ---> " + String(nb) + " bytes read");
 
-    if( nb > 0 ){
-      bytes_written += destination->write((uint8_t*) inBuffer, nb );
+    if (nb > 0) {
+      bytes_written += destination->write((uint8_t*)inBuffer, nb);
       bytesTransfered += nb;
-    } 
+    }
     FTPserialDebug("FTP READ " + String(nb) + " bytes, requested " + String(FTP_BUF_SIZE) + " total written " + String(bytes_written) + " of " + String(length));
-    loop_counter=loop_counter+1;    
-    FTPserialDebugln("total written " + String(bytes_written)); 
+    loop_counter = loop_counter + 1;
+    FTPserialDebugln("total written " + String(bytes_written));
   }
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
