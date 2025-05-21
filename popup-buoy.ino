@@ -968,33 +968,9 @@ String getTestDistance(void){
   String action_string;
   String url;
   url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + "/" + "distance_get_mm";
-  String distance = "";
   http.begin(url);
-
-  // Realizar la solicitud GET
-  int httpResponseCode = http.GET();
-  if (httpResponseCode == 200) {  
-    response = "HTTP response successful: " + String(httpResponseCode)+ " " + http.getString();
-    String json = http.getString();
-    int startIndex = json.indexOf("\"distance\":");
-    if (startIndex == -1) {
-      Serial.println("Key not found.");
-      return distance;
-    }
-
-    // Move to the value start (after the colon and space)
-    startIndex = json.indexOf("\"", startIndex + 10) + 1;
-    int endIndex = json.indexOf("\"", startIndex);
-
-    // Extract the distance value
-    distance = json.substring(startIndex, endIndex);
-  
-  } else {
-    response = "HTTP error while getting test distance: " + String(httpResponseCode)+ " " + http.getString();
-    writeLogFile(response);
-  }
-  http.end();
-  return distance;
+  http.GET();
+  return http.getString();
 }
 
 // Get Test Distacne //
