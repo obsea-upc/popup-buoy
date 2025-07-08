@@ -39,7 +39,7 @@
 //------ Definition ADC read
 #define ADC_PIN 36  
 #define WORK_ADC
-#define BAT_CRIT_LEVEL 3.5
+//#define BAT_CRIT_LEVEL 3.5
 
 //------ Definition for Sleep mode and parameters
 #define TIME_LESS_BEFORE_AWAKENING 30  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite 

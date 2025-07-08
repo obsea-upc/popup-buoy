@@ -85,6 +85,7 @@ FUTURE IMPROVEMENTS
   int waitSendingTime;
   String number = "";
   float MinElev;
+  float Bat_critlevel;
 
 //------ Define GPS Acquiring Parameters -------------------------------------------------------------------------------
   double gpsLat, gpsLong;
@@ -781,7 +782,7 @@ void loop() {
         }
 
       // --- CHANGING THE BUOY STATE AND SLEEP ---
-        if ( Vin_ADC>BAT_CRIT_LEVEL){  //Battery still ok
+        if ( Vin_ADC>Bat_critlevel){  //Battery still ok
           writeLogFile("Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           changeStateTo(4);
@@ -897,7 +898,7 @@ void loop() {
 
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---  NOT USED IN LOWBAT_MODE
       // --- CHANGING THE BUOY STATE AND SLEEP ---
-        if ( Vin_ADC>BAT_CRIT_LEVEL){  //Battery still ok
+        if ( Vin_ADC>Bat_critlevel){  //Battery still ok
           writeLogFile("Battery OK again. Changing to state 4 and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           changeStateTo(4);
@@ -924,7 +925,7 @@ void loop() {
         initTime = millis();
         timeSending = 30; //Sending just one repetition
         maxGPSTimeout = 60000; //here better 60
-        while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC > BAT_CRIT_LEVEL)){  //maxFRM en horas
+        while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC > Bat_critlevel)){  //maxFRM en horas
           adcAcquireData(ADCreadHex); 
           gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
@@ -1008,7 +1009,7 @@ void loop() {
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
-        }else if(Vin_ADC < BAT_CRIT_LEVEL){
+        }else if(Vin_ADC < Bat_critlevel){
           writeLogFile("BATTERY ALERT! Sleeping for " + String(secondsBeforeNextStatellite) + " seconds and changing to state 5.");
           changeStateTo(5);
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
@@ -2835,6 +2836,11 @@ void getInfoFromConfFile() {
       if (VariableNameStr == "FILE_BLINK_LED") {
         fileBlinkLed = DataFromVariable;
         SerialPrintDebugln("Debug FTP file download with LEDs: " + String(DataFromVariable));
+      }
+
+      if (VariableNameStr == "BAT_CRIT_LEVEL") {  // NUEVA VARIABLE FLOAT
+        Bat_critlevel = static_cast<float>(DataFromVariable)/1000;  // Conversión explícita
+        SerialPrintDebugln("Battery critical lebel: " + String(Bat_critlevel));
       }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
