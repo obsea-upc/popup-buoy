@@ -283,43 +283,7 @@ void setup() {
       writeLogFile(time.timestamp(DateTime::TIMESTAMP_FULL));
     }
 
-  //------- TIME UPDATE FROM UDP SERVER OR LANDER --------------------------------------------------------------------
-      char date[10] = "hh:mm:ss";
-      rtcExt.now().toString(date);
-      writeLogFile("The time on the RTC is " + String(date));
-          
-    if (currentState == 0 && PBState == 1 && WiFi.status() == WL_CONNECTED) {
-      //sincronise time from NTP server
-      SerialPrintDebugln("Obtaining time from NTP server");
-      timeClient.begin();
-      timeClient.update();
-      rtcExt.adjust(DateTime(timeClient.getEpochTime()));
-      
-      rtcExt.now().toString(date);
-      SerialPrintDebug("time changed in RTC DS3231. current time:");
-      SerialPrintDebugln(date);
-
-    } else if (currentState == 0 && PBState == 2 && WiFi.status() == WL_CONNECTED){
-      SerialPrintDebugln("Obtaining time from lander");
-      if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
-        writeLogFile("Adjustment of RTC time of buoy failed for wrong HTTP request!" );
-      }else{
-        // Ajustar el RTC con los valores obtenidos
-        DateTime newTime(year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander);
-        rtcExt.adjust(newTime);
-        writeLogFile("Adjustment of RTC time with the time Lander done." );
-      }
-      if (!sendHttpGetRequest(idBuoy,GETSYNCTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
-        writeLogFile("Adjustment of SYNCTIME failed for wrong HTTP request!" );
-      }else{
-        // Ajustar el SYNCTIME con los valores obtenidos
-        EEPROM.write(6, syncTime);
-        EEPROM.commit();
-        delay(50);
-        writeLogFile("Adjustment of SYNCTIME of buoy " +String(idBuoy)+ " done." );
-      }
-    }
-
+ 
   //------- SD CARD SETUP ----------------------------------------------------------------------------------
     delay(100);
     if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
@@ -376,6 +340,46 @@ void setup() {
         SerialPrintDebug("Error: not possible to allocate the memmory");
       }     
     }
+   //------- TIME UPDATE FROM UDP SERVER OR LANDER --------------------------------------------------------------------
+      char date[10] = "hh:mm:ss";
+      rtcExt.now().toString(date);
+      writeLogFile("The time on the RTC is " + String(date));
+          
+    if (currentState == 0 && PBState == 1 && WiFi.status() == WL_CONNECTED) {
+      //sincronise time from NTP server
+      SerialPrintDebugln("Obtaining time from NTP server");
+      timeClient.begin();
+      timeClient.update();
+      rtcExt.adjust(DateTime(timeClient.getEpochTime()));
+      
+      rtcExt.now().toString(date);
+      SerialPrintDebug("time changed in RTC DS3231. current time:");
+      SerialPrintDebugln(date);
+
+    } else if (currentState == 0 && PBState == 2 && WiFi.status() == WL_CONNECTED){
+      SerialPrintDebugln("Obtaining time from lander");
+      if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        writeLogFile("Adjustment of RTC time of buoy failed for wrong HTTP request!" );
+      }else{
+        // Ajustar el RTC con los valores obtenidos
+        DateTime newTime(year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander);
+        rtcExt.adjust(newTime);
+        writeLogFile("Adjustment of RTC time with the time Lander done." );
+      }
+      if (!sendHttpGetRequest(idBuoy,GETSYNCTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        writeLogFile("Adjustment of SYNCTIME failed for wrong HTTP request! Setting 9 as default synctime" );
+        syncTime = 9;
+        EEPROM.write(6, syncTime);
+        EEPROM.commit();
+      }else{
+        // Ajustar el SYNCTIME con los valores obtenidos
+        EEPROM.write(6, syncTime);
+        EEPROM.commit();
+        delay(50);
+        writeLogFile("Adjustment of SYNCTIME of buoy " +String(idBuoy)+ " done." );
+      }
+    }
+
   //------- SLEEP MODE SETUP -------------------------------------------------------------------------------
     // Two ways of waking up, by a timmer or by an external iterruption
     //esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
@@ -597,7 +601,7 @@ void loop() {
 
       // --- DEFINING SLEEP AND CHANGING STATE  ---  
         if (buoyReleased){  
-          sleepTimeState2_m = 5;
+          sleepTimeState2_m = 1;
           writeLogFile("Release of buoy " + String(idBuoy)+ " success! Sleeping for " + String (sleepTimeState2_m) + " minutes to reach the surface." );  
           switch (releaseMode) {
             case FRM:
