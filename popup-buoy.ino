@@ -405,6 +405,9 @@ void setup() {
       SerialPrintDebugln(KIM.get_SN());
       delay(delayKIM);
       SerialPrintDebugln(KIM.get_ID());
+      char logBuf[64];
+      snprintf(logBuf, sizeof(logBuf), "KIM ID: %s", KIM.get_ID());
+      writeLogFile(logBuf);
       delay(delayKIM);
       SerialPrintDebugln(KIM.get_PWR());
       delay(delayKIM);
@@ -2749,17 +2752,17 @@ void getInfoFromConfFile() {
 
       if (VariableNameStr == "idBuoy") {
         idBuoy = DataFromVariable;
-        SerialPrintDebugln("Id Buoy: " + String(DataFromVariable));
+        writeLogFile("Id Buoy: " + String(DataFromVariable));
       }
 
       if (VariableNameStr == "MAX_GPS_TIMEOUT") {
         maxGPSTimeout = DataFromVariable;
-        SerialPrintDebugln("Maximum Timeout of GPS: " + String(DataFromVariable) + " miliseconds");
+        writeLogFile("Maximum Timeout of GPS: " + String(DataFromVariable) + " miliseconds");
       }
 
       if (VariableNameStr == "MAX_WIFI_TIMEOUT") {
         maxWIFITimeout = DataFromVariable;
-        SerialPrintDebugln("Maximum Timeout of WIFI: " + String(DataFromVariable) + " miliseconds");
+        writeLogFile("Maximum Timeout of WIFI: " + String(DataFromVariable) + " miliseconds");
       }
 
       if (VariableNameStr == "TIME_TO_SLEEP_STATE1_h") {
@@ -2774,7 +2777,7 @@ void getInfoFromConfFile() {
 
       if (VariableNameStr == "TIME_TO_SLEEP_ERROR_WIFI_m") {
         sleepTimeWifiAttempt = DataFromVariable;
-        SerialPrintDebugln("Time to Sleep safter WiFi attempt: " + String(DataFromVariable) + " minutes");
+        SerialPrintDebugln("Time to Sleep after WiFi attempt: " + String(DataFromVariable) + " minutes");
       }
 
       if (VariableNameStr == "TIME_TO_SLEEP_ERROR_GPS_s") {
@@ -2819,17 +2822,17 @@ void getInfoFromConfFile() {
 
       if (VariableNameStr == "MinElev") {  // NUEVA VARIABLE FLOAT
         MinElev = static_cast<float>(DataFromVariable);  // Conversión explícita
-        SerialPrintDebugln("Minimum Elevation: " + String(MinElev));
+        writeLogFile("Minimum Elevation: " + String(MinElev));
       }
 
       if (VariableNameStr == "PWR2") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
         sprintf(PWR2, "%d", DataFromVariable);
-        SerialPrintDebugln("PWR2: " + String(PWR2));
+        writeLogFile("PWR2: " + String(PWR2));
       }
 
       if (VariableNameStr == "PWR3") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
         sprintf(PWR3, "%d", DataFromVariable);
-        SerialPrintDebugln("PWR3: " + String(PWR3));
+        writeLogFile("PWR3: " + String(PWR3));
       }
 
 
@@ -2840,7 +2843,7 @@ void getInfoFromConfFile() {
 
       if (VariableNameStr == "BAT_CRIT_LEVEL") {  // NUEVA VARIABLE FLOAT
         Bat_critlevel = static_cast<float>(DataFromVariable)/1000;  // Conversión explícita
-        SerialPrintDebugln("Battery critical lebel: " + String(Bat_critlevel));
+        writeLogFile("Battery critical lebel: " + String(Bat_critlevel));
       }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
