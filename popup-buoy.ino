@@ -339,7 +339,8 @@ void setup() {
         strcat(SD_data_filename, nameFileData);
       } else {
         SerialPrintDebug("Error: not possible to allocate the memmory");
-      }     
+      } 
+    writeLogFile("-----------------//INITIALIZATION\\\\--------------------- ");      
     }
    //------- TIME UPDATE FROM UDP SERVER OR LANDER --------------------------------------------------------------------
       char date[10] = "hh:mm:ss";
@@ -2757,12 +2758,12 @@ void getInfoFromConfFile() {
 
       if (VariableNameStr == "MAX_GPS_TIMEOUT") {
         maxGPSTimeout = DataFromVariable;
-        writeLogFile("Maximum Timeout of GPS: " + String(DataFromVariable) + " miliseconds");
+        SerialPrintDebugln("Maximum Timeout of GPS: " + String(DataFromVariable) + " miliseconds");
       }
 
       if (VariableNameStr == "MAX_WIFI_TIMEOUT") {
         maxWIFITimeout = DataFromVariable;
-        writeLogFile("Maximum Timeout of WIFI: " + String(DataFromVariable) + " miliseconds");
+        SerialPrintDebugln("Maximum Timeout of WIFI: " + String(DataFromVariable) + " miliseconds");
       }
 
       if (VariableNameStr == "TIME_TO_SLEEP_STATE1_h") {
