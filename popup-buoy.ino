@@ -1196,19 +1196,23 @@ void configureKIM(){
     delay(1000);
   }
   if(currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5){
-    KIM.set_PWR(PWR2, strlen(PWR2));  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
+    if (KIM.set_PWR(PWR2, strlen(PWR2)) == OK_KIM) {  
+      writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
+    } else {
+      writeLogFile("Kim Configuration_ERR");
+    } 
     delay(delayKIM); 
-    writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
   }else{
-    KIM.set_PWR(PWR3, strlen(PWR3));  // AT+PWR=1  & AT+AFMT=1  &  AT+SAVE_CFG  --> These three comands should be sent once and they will be kept on RAM (New default).
+    if (KIM.set_PWR(PWR3, strlen(PWR3)) == OK_KIM){
+      writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
+    } else {
+      writeLogFile("Kim Configuration_ERR");
+    }
     delay(delayKIM);  
-    writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
   }
   delay(delayKIM);                    // IMPORTANT because by default AT+AFMT=0 and then it sends RAW messages
-  KIM.set_AFMT(AFMT, sizeof(AFMT) - 1); 
-  delay(delayKIM); 
-  if (KIM.save_CFG() == OK_KIM) {
-    writeLogFile("Kim Configuration_OK");
+  if (KIM.set_AFMT(AFMT, sizeof(AFMT) - 1) == OK_KIM) {
+    writeLogFile("Kim Configuration changed to AFMT");
   } else {
     writeLogFile("Kim Configuration_ERR");
   }
