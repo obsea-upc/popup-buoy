@@ -4,7 +4,7 @@
 *   This file contains the master-code for the PopUpBuoys
 *
 *   HARDWARE:
-*   - ESP32-Wroom-32 (EZSBC).
+*   - ESP32-Wroom-32 (EZSBC)..
 *   - MicroSD Card Adapter
 *   - x3 leds
 *   - x3 push button
@@ -1227,7 +1227,7 @@ void SleepModeSequence(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleep
   ConnectPeripherals(false, SD_card);
   //Light Sequence
   lightSequenceSleep();
-  //Enter Sleep mode
+  //Enter Sleep mode...
   if(sleepMode == 0){
     SerialPrintDebugln("Sleeping relative time");
     goToSleepRTC_rel(sleepingHours, sleepingMinute, sleepingSecond);
