@@ -21,8 +21,7 @@
 
 
 WORKING PROGRESS
-1. parametres de KIM transmission - power ¿? necessary?
-2. Calibrate battey read
+1. Calibrate battey read
 
 FUTURE IMPROVEMENTS
 1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo 
