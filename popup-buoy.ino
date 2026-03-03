@@ -1,7 +1,7 @@
 /*******************************************************************************
 *   00_MasterPoopUpBuoy.ino
 *
-*   This file contains the master-code for the PopUpBuoys
+*   This file contains the master-code for the PopUpBuoys....
 *
 *   HARDWARE:
 *   - ESP32-Wroom-32 (EZSBC).
