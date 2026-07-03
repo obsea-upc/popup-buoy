@@ -847,7 +847,7 @@ void loop() {
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
           #endif  
-          //MinElev = critMinElev;
+          MinElev = critMinElev;
           bool SPP_progress = true;
 
           while (SPP_progress){
