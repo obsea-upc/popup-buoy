@@ -49,6 +49,9 @@ FUTURE IMPROVEMENTS
 #include <Wire.h>
 #include <FastCRC.h>
 #include "previpass.h"
+#include "src/logic/parsers.h"
+#include "src/logic/gps_mask.h"
+#include "src/logic/misc.h"
 
 //------ Configuration FTP server -------------------------------------------------------------------------------------
   ESP32_FTPClient ftp(SECRET_FTP_SERVER_IP, SECRET_FTP_SERVER_USER, SECRET_FTP_SERVER_PASS);
@@ -1371,77 +1374,17 @@ void lightSequenceSleep() {
   }
 }
 bool parseTimeResponse(const String &payload, int &year, int &month, int &day, int &hour, int &minute, int &second) {
-    // Verificar si el campo "success" es true
-    if (payload.indexOf("\"success\": true") == -1) {
-        writeLogFile("Request failed: Time parsing failed due to missing success flag.");
+    buoy_logic::TimeParseResult r = buoy_logic::parseTimeResponse(std::string(payload.c_str()));
+    if (!r.ok) {
+        writeLogFile(r.error.c_str());
         return false;
     }
-
-    // Extraer el año
-    int yearStart = payload.indexOf("\"year\":");
-    if (yearStart != -1) {
-        yearStart = payload.indexOf(":", yearStart) + 1;
-        year = payload.substring(yearStart, payload.indexOf(",", yearStart)).toInt();
-        //SerialPrintDebugln("Year is: " + String(year));
-    } else {
-        writeLogFile("Missing year in response");
-        return false;
-    }
-
-    // Extraer el mes
-    int monthStart = payload.indexOf("\"month\":");
-    if (monthStart != -1) {
-        monthStart = payload.indexOf(":", monthStart) + 1;
-        month = payload.substring(monthStart, payload.indexOf(",", monthStart)).toInt();
-        //SerialPrintDebugln("Month is: " + String(month));
-    } else {
-        writeLogFile("Missing month in response");
-        return false;
-    }
-
-    // Extraer el día
-    int dayStart = payload.indexOf("\"day\":");
-    if (dayStart != -1) {
-        dayStart = payload.indexOf(":", dayStart) + 1;
-        day = payload.substring(dayStart, payload.indexOf(",", dayStart)).toInt();
-        //SerialPrintDebugln("Day is: " + String(day));
-    } else {
-        writeLogFile("Missing day in response");
-        return false;
-    }
-
-    // Extraer la hora
-    int hourStart = payload.indexOf("\"hour\":");
-    if (hourStart != -1) {
-        hourStart = payload.indexOf(":", hourStart) + 1;
-        hour = payload.substring(hourStart, payload.indexOf(",", hourStart)).toInt();
-        //SerialPrintDebugln("Hour is: " + String(hour));
-    } else {
-        writeLogFile("Missing hour in response");
-        return false;
-    }
-
-    // Extraer el minuto
-    int minuteStart = payload.indexOf("\"minute\":");
-    if (minuteStart != -1) {
-        minuteStart = payload.indexOf(":", minuteStart) + 1;
-        minute = payload.substring(minuteStart, payload.indexOf(",", minuteStart)).toInt();
-        //SerialPrintDebugln("Minute is: " + String(minute));
-    } else {
-        writeLogFile("Missing minute in response");
-        return false;
-    }
-
-    // Extraer el segundo
-    int secondStart = payload.indexOf("\"second\":");
-    if (secondStart != -1) {
-        secondStart = payload.indexOf(":", secondStart) + 1;
-        second = payload.substring(secondStart, payload.indexOf("}", secondStart)).toInt();
-        //SerialPrintDebugln("Second is: " + String(second));
-    } else {
-        writeLogFile("Missing second in response");
-        return false;
-    }
+    year = r.year;
+    month = r.month;
+    day = r.day;
+    hour = r.hour;
+    minute = r.minute;
+    second = r.second;
 
     // Log de éxito
     String log = "Parsed time response successfully. ";
@@ -1451,80 +1394,26 @@ bool parseTimeResponse(const String &payload, int &year, int &month, int &day, i
     log += "Hour: " + String(hour) + ", ";
     log += "Minute: " + String(minute) + ", ";
     log += "Second: " + String(second);
-    
+
     writeLogFile(log);
     return true;
 }
 bool parsePermissionResponse(const String &payload, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
-    // Verificar si el campo "success" es true
-    if (payload.indexOf("\"success\": true") == -1) {
-        // Extraer el mensaje de error si "success" no es true
-        int messageStart = payload.indexOf("\"message\":\"");
-        if (messageStart != -1) {
-            messageStart += 10;  // Ajustar posición al valor del mensaje
-            int messageEnd = payload.indexOf("\"", messageStart);
-            String message = payload.substring(messageStart, messageEnd);
-            String log = "Request failed: " + message;
-            writeLogFile(log);
-        } else {
-            writeLogFile("Request failed: Unknown error");
-        }
+    buoy_logic::PermissionParseResult r = buoy_logic::parsePermissionResponse(std::string(payload.c_str()));
+    if (!r.ok) {
+        writeLogFile(r.error.c_str());
         return false;
     }
 
-    // Extraer releaseFlag (manejar espacios antes del valor)
-    int flagStart = payload.indexOf("\"releaseFlag\":");
-    if (flagStart != -1) {
-        flagStart = payload.indexOf(":", flagStart) + 1;  // Ajustar posición al valor
-        releaseFlag = payload.substring(flagStart, payload.indexOf(",", flagStart)).toInt();
-        //SerialPrintDebugln("releaseFlag is " + String(releaseFlag));
-    } else {
-        writeLogFile("Missing releaseFlag in response");
-        return false;
-    }
+    releaseFlag = r.releaseFlag;
+    sleeptime_h = r.sleeptime_h;
+    sleeptime_m = r.sleeptime_m;
 
-    // Extraer releaseMode
-    int modeStart = payload.indexOf("\"releaseMode\": ");
-    if (modeStart != -1) {
-        modeStart = payload.indexOf(":", modeStart) + 2;  // Ajustar posición al valor, +2 para incluir el siguiente "
-        int modeEnd = payload.indexOf(",", modeStart);
-        String releaseModeStr = payload.substring(modeStart, modeEnd); // Sin trim()
-        //SerialPrintDebugln("releaseModeStr is: " + releaseModeStr);
-        if (releaseModeStr == "\"FRM\"") {
-            releaseMode = FRM;
-        } else if (releaseModeStr == "\"DM\"") {
-            releaseMode = DM;
-        } else {
-            writeLogFile("Unknown releaseMode: " + releaseModeStr + ". Forcing releaseMode to DM.");
-            releaseMode = DM;
-        }
+    if (r.releaseModeWasUnknown) {
+        writeLogFile("Unknown releaseMode: " + String(r.rawReleaseModeValue.c_str()) + ". Forcing releaseMode to DM.");
+        releaseMode = DM;
     } else {
-        writeLogFile("Missing releaseMode in response");
-        return false;
-    }
-
-    // Extraer sleeptime_h (manejar espacios antes del valor)
-    int sleepHStart = payload.indexOf("\"sleeptime_h\":");
-    if (sleepHStart != -1) {
-        sleepHStart = payload.indexOf(":", sleepHStart) + 3;  // Ajustar posición al valor
-        String sleeptime_h_str = payload.substring(sleepHStart, payload.indexOf(",", sleepHStart)-1);
-        //SerialPrintDebugln("sleeptime_h is: " + sleeptime_h_str);
-        sleeptime_h =  sleeptime_h_str.toInt();
-    } else {
-        writeLogFile("Missing sleeptime_h in response");
-        return false;
-    }
-
-    // Extraer sleeptime_m (manejar espacios antes del valor)
-    int sleepMStart = payload.indexOf("\"sleeptime_m\":");
-    if (sleepMStart != -1) {
-        sleepMStart = payload.indexOf(":", sleepMStart) + 3;  // Ajustar posición al valor
-        String sleeptime_m_str = payload.substring(sleepMStart, payload.indexOf("}", sleepMStart)-1);
-        //SerialPrintDebugln("sleeptime_m is: " + sleeptime_m_str);
-        sleeptime_m = sleeptime_m_str.toInt();
-    } else {
-        writeLogFile("Missing sleeptime_m in response");
-        return false;
+        releaseMode = (r.releaseMode == buoy_logic::ReleaseMode::FRM) ? FRM : DM;
     }
 
     // Log para indicar éxito con los valores extraídos
@@ -1533,23 +1422,20 @@ bool parsePermissionResponse(const String &payload, int &releaseFlag, ReleaseMod
     log += "releaseMode: " + String(releaseMode == FRM ? "FRM" : "DM") + ", ";
     log += "sleeptime_h: " + String(sleeptime_h) + ", ";
     log += "sleeptime_m: " + String(sleeptime_m);
-    
+
     writeLogFile(log);
     return true;
 }
 bool parseSyncTimeResponse(const String& payload) {
-    // Verificar si el campo "sync_time" está presente
-    int syncTimeStart = payload.indexOf("\"sync_time\":");
-    if (syncTimeStart != -1) {
-        syncTimeStart += 12;  // Ajustar posición al valor
-        syncTime = payload.substring(syncTimeStart, payload.indexOf("}", syncTimeStart)).toInt();
-        SerialPrintDebugln("syncTime is " + String(syncTime));
-        writeLogFile("Parsed syncTime successfully. syncTime: " + String(syncTime));
-        return true;
-    } else {
+    buoy_logic::SyncTimeParseResult r = buoy_logic::parseSyncTimeResponse(std::string(payload.c_str()));
+    if (!r.ok) {
         writeLogFile("Missing syncTime in response");
         return false;
     }
+    syncTime = r.syncTime;
+    SerialPrintDebugln("syncTime is " + String(syncTime));
+    writeLogFile("Parsed syncTime successfully. syncTime: " + String(syncTime));
+    return true;
 }
 bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
   HTTPClient http;
@@ -2005,44 +1891,49 @@ bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 }
 void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisMessage, char *ADCreadHex) {
   // this function masks the gps latitute and longitude in hexadecimal
-  int latitude, longitude;
-  char maskedData[25];
-  char hex_latitude[9], hex_longitude[9];
-  char hex_epochTime[9];
-  char hex_crc[3];
+  #ifdef WORK_ADC
+    std::string masked = buoy_logic::maskGPS(gpsLat, gpsLong, epochTime, true, std::string(ADCreadHex));
+    strcpy(kineisMessage, masked.c_str());
+  #else
+    // Not extracted to src/logic/ (this branch is not compiled in the
+    // current build -- WORK_ADC is always #defined in conf.h -- so it's
+    // left untouched to avoid changing behavior that can't be
+    // compile-verified in this configuration).
+    int latitude, longitude;
+    char maskedData[25];
+    char hex_latitude[9], hex_longitude[9];
+    char hex_epochTime[9];
+    char hex_crc[3];
 
-  if (gpsLat == 200 && gpsLong == 200){  //means GPS is not fixed
+    if (gpsLat == 200 && gpsLong == 200){  //means GPS is not fixed
 
-    strcpy(hex_latitude, "FFFFFFFF");
-    strcpy(hex_longitude, "FFFFFFFF");
+      strcpy(hex_latitude, "FFFFFFFF");
+      strcpy(hex_longitude, "FFFFFFFF");
 
-  } else {
-
-    latitude = gpsLat * (pow(10, 6));    //multiply 10^6 to eliminate decimals
-    longitude = gpsLong * (pow(10, 6));  //multiply to eliminate decimals
-
-    if (latitude < 0) {  // check if value is positive or negative
-      sprintf(hex_latitude, "%08lX", (unsigned long)(4294967296 + latitude));
     } else {
-      sprintf(hex_latitude, "%08lX", (unsigned long)latitude);
-   }
 
-    if (longitude < 0) {  // check if value is positive or negative
-      sprintf(hex_longitude, "%08lX", (unsigned long)(4294967296 + longitude));
-    } else {
-      sprintf(hex_longitude, "%08lX", (unsigned long)longitude);
+      latitude = gpsLat * (pow(10, 6));    //multiply 10^6 to eliminate decimals
+      longitude = gpsLong * (pow(10, 6));  //multiply to eliminate decimals
+
+      if (latitude < 0) {  // check if value is positive or negative
+        sprintf(hex_latitude, "%08lX", (unsigned long)(4294967296 + latitude));
+      } else {
+        sprintf(hex_latitude, "%08lX", (unsigned long)latitude);
+     }
+
+      if (longitude < 0) {  // check if value is positive or negative
+        sprintf(hex_longitude, "%08lX", (unsigned long)(4294967296 + longitude));
+      } else {
+        sprintf(hex_longitude, "%08lX", (unsigned long)longitude);
+      }
+
     }
 
-  }
+    sprintf(hex_epochTime, "%08lX", (unsigned long)epochTime);
 
-  sprintf(hex_epochTime, "%08lX", (unsigned long)epochTime);
+    //append all the informations
+    sprintf(maskedData, "%s%s%s", hex_latitude, hex_longitude, hex_epochTime);
 
-  //append all the informations
-  sprintf(maskedData, "%s%s%s", hex_latitude, hex_longitude, hex_epochTime);
-
-  #ifdef WORK_ADC
-    sprintf(kineisMessage, "%s%s", maskedData, ADCreadHex);
-  #else
     //calculate CRC8
     FastCRC8 CRC8;
     uint8_t crc = CRC8.smbus((uint8_t *)maskedData, 24);
@@ -2052,11 +1943,6 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
 
   writeLogFile("Message to transmitt kineisMessage: ");
   writeLogFile(kineisMessage);
-
-  // Reinicia el buffer para la próxima conversión
-  memset(hex_longitude, 0, sizeof(hex_longitude));
-  memset(hex_latitude, 0, sizeof(hex_latitude));
-  memset(hex_epochTime, 0, sizeof(hex_epochTime));
 }
 float updateMinElev() {
   // Llamada para leer el progreso actual desde el archivo
@@ -2227,8 +2113,9 @@ void initializeEEPROM() {
     currentState = storedValue;
 }
 void eepromSaveTimeCoverage(int timeCoverage) {
-  EEPROM.write(2, (timeCoverage >> 8) & 0xFF);
-  EEPROM.write(3, timeCoverage & 0xFF);
+  buoy_logic::PackedCoverageDuration packed = buoy_logic::packCoverageDuration(timeCoverage);
+  EEPROM.write(2, packed.highByte);
+  EEPROM.write(3, packed.lowByte);
   EEPROM.commit();
   delay(50);
 }
@@ -2268,9 +2155,10 @@ void IncrementCounterFailWIFI(){
   eepromSaveCounterWIFIFail(Counter_FailWIFI);
 }
 void ChangeSecondsInHoursAndMinutes(int *seconds, int *minutes, int *hours) {
-  *hours = *seconds / 3600;           // Conversion en heures
-  *minutes = (*seconds % 3600) / 60;  // Conversion en minutes
-  *seconds = (*seconds % 3600) % 60;  // Conversion en secondes sans les heures et les minutes
+  buoy_logic::HMS hms = buoy_logic::secondsToHoursMinutesSeconds(*seconds);
+  *hours = hms.hours;
+  *minutes = hms.minutes;
+  *seconds = hms.seconds;
 }
 void SendGPSMessage(int timeSending) {
 
@@ -2565,37 +2453,24 @@ void readSuccessFile() {
   progressDataFileSD.close();
 }
 void splitLineProgressFile(const String &line, int &row, int &nbrsent) {
-  int separatorIndex = line.indexOf(':');  // The line will be cut by the ":" caracter. To change the file , only change here the caracter.
-
-  if (separatorIndex != -1) {
-    String rowStr = line.substring(0, separatorIndex);  // This part is to get the index
-    row = rowStr.toInt();
-
-    String nbrsentStr = line.substring(separatorIndex + 1);  // This part is to get the data
-    nbrsent = nbrsentStr.toInt();
+  buoy_logic::RowCount r = buoy_logic::splitLineProgressFile(std::string(line.c_str()));
+  if (r.ok) {
+    row = r.row;
+    nbrsent = r.count;
   }
 }
 void splitLineDataFile(const String &line, int &index, char *data) {
-
-  int separatorIndex = line.indexOf(':');  // The line will be cut by the ":" caracter. To change the file , only change here the caracter.
-
-  if (separatorIndex != -1) {
-    String indexStr = line.substring(0, separatorIndex);  // This part is to get the Index
-    index = indexStr.toInt();
-
-    String dataStr = line.substring(separatorIndex + 1);  // This part is to get the Index
-    strcpy(data, dataStr.c_str());
+  buoy_logic::IndexData r = buoy_logic::splitLineDataFile(std::string(line.c_str()));
+  if (r.ok) {
+    index = r.index;
+    strcpy(data, r.data.c_str());
   }
 }
 void splitLineSuccessFile(const String &line, char *variableName, int &data) {
-  int separatorIndex = line.indexOf('=');  // The line will be cut by the ":" caracter. To change the file , only change here the caracter.
-
-  if (separatorIndex != -1) {
-    String VariableNameStr = line.substring(0, separatorIndex);  // This part is to get the name of the variable
-    strcpy(variableName, VariableNameStr.c_str());
-
-    String dataStr = line.substring(separatorIndex + 1);  // This part is to get the data
-    data = dataStr.toInt();
+  buoy_logic::NameValue r = buoy_logic::splitLineSuccessFile(std::string(line.c_str()));
+  if (r.ok) {
+    strcpy(variableName, r.name.c_str());
+    data = r.value;
   }
 }
 char *GetLineDataFile(int Row) {
