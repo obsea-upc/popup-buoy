@@ -13,7 +13,7 @@
 *   - Kineis (KIM1: version V2)
 *   - RTC module
 *   - Step-UP converter (U3V16F5)
-*   
+*
 *    !!! IMPORTANT - Modify the secrets.h file for this project with your network connection and ThingSpeak channel details !!!
 
 *
@@ -24,7 +24,7 @@ WORKING PROGRESS
 1. Calibrate battey read
 
 FUTURE IMPROVEMENTS
-1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo 
+1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo
 2. Implement a board without intermediate boards. No Evaluation boards, all solded.
 
 
@@ -49,6 +49,9 @@ FUTURE IMPROVEMENTS
 #include <Wire.h>
 #include <FastCRC.h>
 #include "previpass.h"
+
+
+#define s(x) String(x)
 
 //------ Configuration FTP server -------------------------------------------------------------------------------------
   ESP32_FTPClient ftp(SECRET_FTP_SERVER_IP, SECRET_FTP_SERVER_USER, SECRET_FTP_SERVER_PASS);
@@ -115,17 +118,17 @@ FUTURE IMPROVEMENTS
     FRM,  // FAST RECOVERY MODE
     DM    // DRIFTING MODE
   };
-  int releaseFlag;           
-  ReleaseMode releaseMode;   
-  int sleeptime_h;          
-  int sleeptime_m;    
+  int releaseFlag;
+  ReleaseMode releaseMode;
+  int sleeptime_h;
+  int sleeptime_m;
 //------ Timming definitions ---------------------------------------------------------------------------------------------
   int sleeptime_s1_h; //Time to Sleep state 1 (from config to deep sea) in hours
   int sleeptime_s1_m; //Time to Sleep state 1 (from config to deep sea) in min
   int sleeptime_errorGPS_s; //Time to sleep when the GPS can't fix- 1st time (s)
   int sleeptime_errorGPS_recurrent_s; //Time to sleep when the GPS can't fix for multiple times (s)
   int max_sleep_time_s; //Maximum surface sleep time in s at any condition (to ensure the recovery)
-  int timetransm_GPS_s; //Time for normal GPS transmission, minimum --> Minimum duration --> 300 s =10 messages .. now is 2 messages 
+  int timetransm_GPS_s; //Time for normal GPS transmission, minimum --> Minimum duration --> 300 s =10 messages .. now is 2 messages
   int timetransm_GPS_noArg_s; //Time for GPS transmission, no ARGOS coverage (default 90 -> 3 messages)
   int FRMsleepTime_s; //Time to sleep at stage 6 between transmissions
   int FRMsleepTime_fail_s; //Time to sleep at stage 6 when GPS fail
@@ -201,9 +204,9 @@ void setup() {
     pinMode(SD_card, OUTPUT);
     digitalWrite(SD_card, HIGH);
     if (currentState == 4 or currentState == 5 or currentState == 6) {
-      digitalWrite(GPS_KIM, HIGH);  
+      digitalWrite(GPS_KIM, HIGH);
     } else{
-      digitalWrite(GPS_KIM, LOW); 
+      digitalWrite(GPS_KIM, LOW);
     }
 
   //------- EXTERNAL RTC SETUP---------------------------------------------------------------------------
@@ -283,7 +286,7 @@ void setup() {
       writeLogFile(time.timestamp(DateTime::TIMESTAMP_FULL));
     }
 
- 
+
   //------- SD CARD SETUP ----------------------------------------------------------------------------------
     delay(100);
     if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
@@ -321,10 +324,10 @@ void setup() {
       uint64_t cardSize = SD.cardSize() / (1024 * 1024);
       #ifdef SERIAL_DEBUG
         Serial.printf("  SD Card Size: %lluMB\n", cardSize);
-      #endif  
+      #endif
     }
   //--------CONF FILE PARAMETERS ---------------------------------------------------------------------------
-    if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {      
+    if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
       getInfoFromConfFile();   // To get all the informations put by the user in this conf file
       char locationSD[64];
       sprintf(locationSD, "/PopUpBuoy_%d", idBuoy);
@@ -338,21 +341,21 @@ void setup() {
         strcat(SD_data_filename, nameFileData);
       } else {
         SerialPrintDebug("Error: not possible to allocate the memmory");
-      } 
-    writeLogFile("-----------------//INITIALIZATION\\\\--------------------- ");      
+      }
+    writeLogFile("-----------------//INITIALIZATION\\\\--------------------- ");
     }
    //------- TIME UPDATE FROM UDP SERVER OR LANDER --------------------------------------------------------------------
       char date[10] = "hh:mm:ss";
       rtcExt.now().toString(date);
       writeLogFile("The time on the RTC is " + String(date));
-          
+
     if (currentState == 0 && PBState == 1 && WiFi.status() == WL_CONNECTED) {
       //sincronise time from NTP server
       SerialPrintDebugln("Obtaining time from NTP server");
       timeClient.begin();
       timeClient.update();
       rtcExt.adjust(DateTime(timeClient.getEpochTime()));
-      
+
       rtcExt.now().toString(date);
       SerialPrintDebug("time changed in RTC DS3231. current time:");
       SerialPrintDebugln(date);
@@ -422,7 +425,7 @@ void setup() {
   }
  //------- FINALISED SETUP --------------------------------------------------------------------------------
   SerialPrintDebugln("\n---------------------------SETUP COMPLETE--------------------------------\n");
-  
+
   #ifdef SERIAL_DEBUG
     SerialPrintDebug("delay 3s ----");
     delay(3000);
@@ -442,7 +445,7 @@ void loop() {
 
   // State Management
   switch (PBState) {
-      
+
     case 1:
       SerialPrintDebugln("<---- INITIALISATION PROCEDURE ---->");
       initializationprocedure();
@@ -481,7 +484,7 @@ void loop() {
         delay(500);
         digitalWrite(LED_G, LOW);
         delay(500);
-      #endif   
+      #endif
       break;
   }
 
@@ -492,8 +495,8 @@ void loop() {
       writeLogFile("First Boot.");
       SerialPrintDebug("Configuration finished for POP_UP_BUOY at state: ");
       SerialPrintDebugln(currentState);
-      SerialPrintDebugln("Moving to state 1."); 
-      changeStateTo(1);//change to state 1    
+      SerialPrintDebugln("Moving to state 1.");
+      changeStateTo(1);//change to state 1
       break;
     case 1:  //DEPLOYMENT -- Deployment sleep
       writeLogFile("- sleeping for " +  String(sleeptime_s1_h) + " hours and " + String(sleeptime_s1_m) + " minutes." ); //configure sleep (each pop up buoy will have a different time)
@@ -547,7 +550,7 @@ void loop() {
               }
           }
         }
-      // --- DOWNLOADING DATA AND SENDING RELEASE COMMAND  ---  
+      // --- DOWNLOADING DATA AND SENDING RELEASE COMMAND  ---
         if (!connectToRaspWiFi()) {
           buoyReleased = false;
           writeLogFile("Release of buoy " +String(idBuoy)+ " failed for No-WiFi!");
@@ -565,19 +568,19 @@ void loop() {
             buoyReleased = false;
             writeLogFile("Release of buoy " +String(idBuoy)+ " failed for wrong HTTP request!");
           }else{
-            if (!releaseFlag){    
+            if (!releaseFlag){
               buoyReleased = false;
-              Counter_FailWIFI = 3; //as if it has failed 3 times, sleep till next cycle  
+              Counter_FailWIFI = 3; //as if it has failed 3 times, sleep till next cycle
               eepromSaveCounterWIFIFail(Counter_FailWIFI);
               writeLogFile("The release request of the buoy " +String(idBuoy)+ " was negative.");
             }else{
-              if (connectToFTP() < 0) { 
-                buoyReleased = false;             
+              if (connectToFTP() < 0) {
+                buoyReleased = false;
                 writeLogFile("Connection to FTP failed!");
               }else{
                 digitalWrite(LED_Y, HIGH);
                 if (downloadAllFilesFTP() < 0) {
-                  buoyReleased = false; 
+                  buoyReleased = false;
                   writeLogFile("Download of FTP files from buoy " +String(idBuoy)+ " failed.");
                 }else{
                   digitalWrite(LED_G, HIGH);
@@ -603,10 +606,10 @@ void loop() {
           }
         }
 
-      // --- DEFINING SLEEP AND CHANGING STATE  ---  
-        if (buoyReleased){  
+      // --- DEFINING SLEEP AND CHANGING STATE  ---
+        if (buoyReleased){
           sleepTimeState2_m = 1;
-          writeLogFile("Release of buoy " + String(idBuoy)+ " success! Sleeping for " + String (sleepTimeState2_m) + " minutes to reach the surface." );  
+          writeLogFile("Release of buoy " + String(idBuoy)+ " success! Sleeping for " + String (sleepTimeState2_m) + " minutes to reach the surface." );
           switch (releaseMode) {
             case FRM:
               changeStateTo(6); //Change state to 6 and save state in eeprom
@@ -632,17 +635,17 @@ void loop() {
             if (sleeptime_h == 0){
               sleeptime_h =24; //in case no wiffi connect for 3 times (sleeptime_h no initialized)
             }
-            sleepTimeState2_h = sleeptime_h;  //here we set the cycle time 
+            sleepTimeState2_h = sleeptime_h;  //here we set the cycle time
             IncrementCounterFailWIFI();
             writeLogFile("Not achieved release phase for 3 WiFi attempts or early request, keeping state 2. Going to sleep for " + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
             SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 1); //Enter Sleep Mode
             break;
           }else{
-            sleepTimeState2_m = sleepTimeWifiAttempt; 
+            sleepTimeState2_m = sleepTimeWifiAttempt;
             sleepTimeState2_h = 0;
             IncrementCounterFailWIFI();
             writeLogFile("Not achieved release phase for " + String(Counter_FailWIFI) + " WiFi attempts, keeping state 2. Going to sleep for " + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
-            SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 0); //Enter Sleep Mode  
+            SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 0); //Enter Sleep Mode
             break;
           }
         }
@@ -666,7 +669,7 @@ void loop() {
 
       // --- DEFINING IF THERE IS ARGOS COVERAGE AND HOW THE CODE MUST ANSWER ---
         CoverageState = EEPROM.read(1);  // Read if the buoy is in a time where satellites are passing
-      
+
         if (CoverageState == 0) {        // no coverage so only sending the GPS data and going back to sleep
           timeSending = timetransm_GPS_noArg_s;              // sec of sending --> if 90 => 3 kineis MSG
           fileSendingTime = 0;
@@ -683,7 +686,7 @@ void loop() {
             fileSendingTime = (Decimal_CoverageDuration - timeSending) / 2;  // In this case we must send the file but GPS is sent at the middle of the coverage so we sent the file before and after
             writeLogFile("Argos coverage OK, sending data for " + String(fileSendingTime) + " seconds twice and GPS for " + String(timeSending) + " seconds. Then go back to sleep.");
           }
-          
+
         }
 
       // --- OBTAINING THE GPS AND ADC DATA ---
@@ -691,7 +694,7 @@ void loop() {
         gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
         gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
 
-      // --- SENDING MESSAGES PART --- 
+      // --- SENDING MESSAGES PART ---
         if (CoverageState == 0 ) {
           SendGPSMessage(timeSending);   // We don't care when the message is sent because there's no ARGOS coverage
         } else {
@@ -715,8 +718,8 @@ void loop() {
         delay(10);
 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
-        if (gpsFix) {          
-          
+        if (gpsFix) {
+
           SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
 
           AopSatelliteEntry_t aopTable[maxAOPSize];
@@ -746,7 +749,7 @@ void loop() {
               delay(10);
               secondsBeforeNextStatellite=5;      //go directly to state 4 to continue transmitting, no sleep
               SPP_progress=false;
-                
+
             } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
               //Decimal_CoverageDuration += secondsBeforeNextStatellite;
               Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
@@ -758,7 +761,7 @@ void loop() {
             }
           }
         } else {  // If GPS is not fixed
-          
+
           Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
           writeLogFile("Failed to fix GPS, no data was stored to SD");
           SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
@@ -770,7 +773,7 @@ void loop() {
             secondsBeforeNextStatellite = sleeptime_errorGPS_s;
             writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
           } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
-            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20  
+            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
             SetCounterFailGPSTo_0();
             writeLogFile("GPS failing : counter = 3 ");
           }
@@ -830,13 +833,13 @@ void loop() {
         gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
 
       // --- SENDING MESSAGES PART --- this can be moved down
-      
+
         SendGPSMessage(timeSending);   // No need for delay. If no Argoscoverage, don't care when its sent. If argos coverage, all time sending GPS data so also in the midle.
         writeLogFile("End of KIM transmissions.");
         delay(10);
 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
-        if (gpsFix) {   
+        if (gpsFix) {
 
           SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
 
@@ -846,7 +849,7 @@ void loop() {
           readSatelliteData(aopTable, nbSatsInAopTable);
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
-          #endif  
+          #endif
           MinElev = critMinElev;
           bool SPP_progress = true;
 
@@ -867,7 +870,7 @@ void loop() {
               delay(10);
               secondsBeforeNextStatellite=0;      //go directly to state 4 to continue transmitting, no sleep
               SPP_progress=false;
-              
+
             } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
               secondsBeforeNextStatellite = CRIT_FACTOR*3600; //in lowlevel mode, no need to repeat the SPP in SPP error, sleep 3 hours
               SetCoverageDurationTo_0();
@@ -878,9 +881,9 @@ void loop() {
 
           }
 
-          
+
         } else {  // If GPS is not fixed
-          
+
           Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
           writeLogFile("Failed to fix GPS, no data was stored to SD");
           SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
@@ -892,7 +895,7 @@ void loop() {
             secondsBeforeNextStatellite = sleeptime_errorGPS_s*CRIT_FACTOR;   // As we are in 5 battery critical, all times larger
             writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
           } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
-            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s*CRIT_FACTOR;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20  
+            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s*CRIT_FACTOR;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
             SetCounterFailGPSTo_0();
             writeLogFile("GPS failing : counter = 3 ");
           }
@@ -929,20 +932,26 @@ void loop() {
         timeSending = 30; //Sending just one repetition
         maxGPSTimeout = 60000; //here better 60
         while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC > Bat_critlevel)){  //maxFRM en horas
-          adcAcquireData(ADCreadHex); 
+          adcAcquireData(ADCreadHex);
           gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           writeLogFile("Sending updated GPS position");
           SendGPSMessage(timeSending);
-        } 
-      // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
-        if (gpsFix) {          
-          
-          SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
 
+          int ret = tryUploadDataToUSV();
+          if (ret == 0) {
+            // Upload data sucess, move to state 4
+            changeStateTo(4);
+            writeLogFile("Entering Sleep mode");
+            SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
+            delay(10);
+          }
+        }
+      // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
+        if (gpsFix) {
+          SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
           AopSatelliteEntry_t aopTable[maxAOPSize];
           uint8_t nbSatsInAopTable = maxAOPSize;
-
           readSatelliteData(aopTable, nbSatsInAopTable);
           #ifdef SERIAL_DEBUG
             printAopTable(aopTable, nbSatsInAopTable);
@@ -967,7 +976,7 @@ void loop() {
               delay(10);
               secondsBeforeNextStatellite=5;      //go directly to state 4 to continue transmitting, no sleep
               SPP_progress=false;
-                
+
             } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
               //Decimal_CoverageDuration += secondsBeforeNextStatellite;
               Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
@@ -979,7 +988,7 @@ void loop() {
             }
           }
         } else {  // If GPS is not fixed
-          
+
           Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
           writeLogFile("Failed to fix GPS, no data was stored to SD");
           SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
@@ -991,7 +1000,7 @@ void loop() {
             secondsBeforeNextStatellite = sleeptime_errorGPS_s;
             writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
           } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
-            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20  
+            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
             SetCounterFailGPSTo_0();
             writeLogFile("GPS failing : counter = 3 ");
           }
@@ -1026,7 +1035,7 @@ void loop() {
           SleepModeSequence(0, 5, 0, 0);
           delay(10);
         }
-      break;  
+      break;
     default:
       SerialPrintDebugln("State ERROR - No state detected.");
       delay(1000);
@@ -1100,7 +1109,7 @@ bool writeLogFile(String message) {
 
   SerialPrintDebug("Writing in LogFile.txt ---");
   SerialPrintDebugln(message);
-  
+
   //Open file and create if it doeesn't exist
   LogFile = SD.open(Log_filename, FILE_APPEND);  //filename is the file name to be created and FILE_WRITE is a command to create file.
   if (!LogFile) {
@@ -1151,10 +1160,10 @@ bool deleteFile(const char *filename) {
 
   if (SD.exists(filename)) {
     SD.remove(filename);
-    SerialPrintDebugln(String(filename) + " removed."); 
+    SerialPrintDebugln(String(filename) + " removed.");
     return true;
   } else {
-    SerialPrintDebugln(String(filename) + " doesn't exist."); 
+    SerialPrintDebugln(String(filename) + " doesn't exist.");
     return false;
   }
 }
@@ -1195,19 +1204,19 @@ void configureKIM(){
     delay(1000);
   }
   if(currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5){
-    if (KIM.set_PWR(PWR2, strlen(PWR2)) == OK_KIM) {  
+    if (KIM.set_PWR(PWR2, strlen(PWR2)) == OK_KIM) {
       writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
     } else {
       writeLogFile("Kim Configuration_ERR");
-    } 
-    delay(delayKIM); 
+    }
+    delay(delayKIM);
   }else{
     if (KIM.set_PWR(PWR3, strlen(PWR3)) == OK_KIM){
       writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
     } else {
       writeLogFile("Kim Configuration_ERR");
     }
-    delay(delayKIM);  
+    delay(delayKIM);
   }
   delay(delayKIM);                    // IMPORTANT because by default AT+AFMT=0 and then it sends RAW messages
   if (KIM.set_AFMT(AFMT, sizeof(AFMT) - 1) == OK_KIM) {
@@ -1215,7 +1224,7 @@ void configureKIM(){
   } else {
     writeLogFile("Kim Configuration_ERR");
   }
-  delay(delayKIM); 
+  delay(delayKIM);
 }
 
 //------- FUNCTIONS FOR SLEEP SEQUENCE ---------------------------------------------------------------------
@@ -1234,7 +1243,7 @@ void SleepModeSequence(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleep
     SerialPrintDebugln("Sleeping absolute time");
     goToSleepRTC_abs(sleepingHours);
   }
-    
+
 }
 void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already done
   SerialPrintDebugln("Starting Light Sleep Routine");
@@ -1253,10 +1262,10 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
     }
   //Gotoleep light
     esp_sleep_enable_timer_wakeup(sleeping_time * uS_TO_S_FACTOR);
-    esp_light_sleep_start(); 
+    esp_light_sleep_start();
   //Turn on peripherals (except for case 6)
     if (currentState!=6){
-      ConnectPeripherals(true, GPS_KIM); 
+      ConnectPeripherals(true, GPS_KIM);
       delay(5);
       ConnectPeripherals(true, SD_card);
       delay(5);
@@ -1327,7 +1336,7 @@ void goToSleepRTC_abs(int8_t sleepingHours) {
   } else {
     // Imprimir fecha y hora de la alarma en la misma línea que el modo
     char alarm1Date[20] = "YYYY-MM-DD hh:mm:ss";
-    alarmTime.toString(alarm1Date); 
+    alarmTime.toString(alarm1Date);
     SerialPrintDebug(" [Alarm1: ");
     SerialPrintDebug(alarm1Date);  // Imprimir fecha y hora en la misma línea
     SerialPrintDebugln(", Mode: Date");
@@ -1451,7 +1460,7 @@ bool parseTimeResponse(const String &payload, int &year, int &month, int &day, i
     log += "Hour: " + String(hour) + ", ";
     log += "Minute: " + String(minute) + ", ";
     log += "Second: " + String(second);
-    
+
     writeLogFile(log);
     return true;
 }
@@ -1533,7 +1542,7 @@ bool parsePermissionResponse(const String &payload, int &releaseFlag, ReleaseMod
     log += "releaseMode: " + String(releaseMode == FRM ? "FRM" : "DM") + ", ";
     log += "sleeptime_h: " + String(sleeptime_h) + ", ";
     log += "sleeptime_m: " + String(sleeptime_m);
-    
+
     writeLogFile(log);
     return true;
 }
@@ -1551,6 +1560,9 @@ bool parseSyncTimeResponse(const String& payload) {
         return false;
     }
 }
+
+
+
 bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m) {
   HTTPClient http;
   String response;
@@ -1572,12 +1584,12 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
       action_string = "/gettime";
       // Construir la URL con la dirección IP, puerto y el número de GPIO
       url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string;
-      break; 
+      break;
     case GETSYNCTIME:
       action_string = "/getsynctime";
       // Construir la URL con la dirección IP, puerto y el número de GPIO
       url = "http://" + String(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + action_string;
-      break;           
+      break;
     default:
       action_string = "/unknown/";
       // Construir la URL con la dirección IP, puerto y el número de GPIO
@@ -1610,7 +1622,7 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
     case PERMISSION:
       if (httpResponseCode == 200) {
         String payload = http.getString();  // Obtén la respuesta como string
- 
+
         // Llamar a la subfunción para parsear el payload
         bool parsepermissionSuccess = parsePermissionResponse(payload, releaseFlag, releaseMode, sleeptime_h, sleeptime_m);
         //writeLogFile("Message parsed. releaseFlag = " + String(releaseFlag) + ", releaseMode = " + String (releaseMode) + ", sleeptime_h = " + String(sleeptime_h) + " and sleeptime_m = " + String(sleeptime_m));
@@ -1647,7 +1659,7 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
         http.end();  // Liberar recursos
         return false;
       }
-      break;  
+      break;
     case GETSYNCTIME:
       if (httpResponseCode == 200) {
         String payload = http.getString();
@@ -1660,7 +1672,7 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
         writeLogFile("HTTP GET failed for GETSYNCTIME");
         return false;
       }
-      break; 
+      break;
     default:
       response = "Unknown action requested: " + String(action) + " - HTTP response code: " + String(httpResponseCode);
       writeLogFile(response);
@@ -1672,12 +1684,50 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
   http.end();
   return false;
 }
+
+String getServerID() {
+  HTTPClient http;
+  String url;
+  url = s("http://") + s(SECRET_FTP_SERVER_IP) + ":" + s(SECRET_FTP_SERVER_PORT) + s("/whoami");
+  http.begin(url);
+  int httpResponseCode = http.GET();
+
+  if (httpResponseCode > 300) {
+    return s("");
+  }
+
+  String jsonString = http.getString();  // Obtén la respuesta como string
+
+  int keyPos = jsonString.indexOf("\"id\"");
+  String myid = "";
+
+  if (keyPos != -1) {
+    // 2. Find the colon ':' after the "id" key
+    int colonPos = jsonString.indexOf(":", keyPos);
+    if (colonPos != -1) {
+      // 3. Find the opening quote '"' of the value after the colon
+      int startQuote = jsonString.indexOf("\"", colonPos);
+      if (startQuote != -1) {
+        // 4. Find the closing quote '"' right after the opening quote
+        int endQuote = jsonString.indexOf("\"", startQuote + 1);
+        if (endQuote != -1) {
+          // 5. Extract everything between the two quotes
+          myid = jsonString.substring(startQuote + 1, endQuote);
+        }
+      }
+    }
+  } else {
+    writeLogFile("Key 'id' not found in the string.");
+  }
+  return myid;
+}
+
 bool connectToRaspWiFi() {
   WiFi.begin(WIFI_SSID2, WIFI_PASS2);
   unsigned long startAttemptTime = millis();
 
   SerialPrintDebug("Conectando a WiFi...");
-  
+
   while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < maxWIFITimeout) {
     delay(500);
     SerialPrintDebug(".");
@@ -1712,7 +1762,7 @@ void configGPS() {
     0xB5, 0x62, 0x06, 0x24, 0x24, 0x00, // Cabecera
     0x01, 0x00, // Mask: Apply dynamic model and fix mode
     0x03, 0x00, // Dynamic model: Airborne <1g (se puede cambiar según el uso)
-    0x01, 0x00, // Fix mode: 0x01, 0x00, = 2D only, 0x02,  <-- Cambio aquí 
+    0x01, 0x00, // Fix mode: 0x01, 0x00, = 2D only, 0x02,  <-- Cambio aquí
     0x00, 0x00, 0x00, 0x00, // Fixed alt
     0x00, 0x00, 0x00, 0x00, // Fixed alt var
     0x00, 0x00, 0x00, 0x00, // Min elev, drLimit, pDop, tDop
@@ -1753,14 +1803,14 @@ bool gpsAcquireSatellites() {
   return false;  // Retorna false si no se detectan satélites en 30 segundos
 }
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
-  
+
   gps = TinyGPSPlus();  // Reset the GPS
   delay(10);
   configGPS();
   int gpsState = 0;
   int initialTime = millis();
   gpsFix = false;
-  
+
   while (gpsState == 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
     //SerialPrintDebugln("GPS acquiring data------>");
     while (gpsSerial.available() > 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
@@ -1845,7 +1895,7 @@ void gpsSave(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMon
       writeLogFile("Failed to store GPS data to SD ");
       }
   } else {
-    writeLogFile("Failed to fix GPS"); 
+    writeLogFile("Failed to fix GPS");
     // When GPS fails to fix in phase 4, the GPS_track.csv is not updated but it is set  gpsLong = FFFFFFFF and gpsLat = FFFFFFFF with GPSfix=false. These insfo is transmitted for ARGOS dopler detection
     gpsLat = 200;
     gpsLong = 200;
@@ -1950,7 +2000,7 @@ void adcAcquireData(char *ADCreadHex) {
   float R2_ADC = 10; // Resistance R2 value in MΩ
   float Vref_ADC = 3.3; // Tensión de referencia del ADC (3.3V)
   float a_calADC = 1; //0.9637; // calibration as y=ax+b
-  float b_calADC = 0; //0.500; 
+  float b_calADC = 0; //0.500;
   float Vout_ADC;
   int ADCread;
   int sumaADCread = 0;
@@ -1972,7 +2022,7 @@ void adcAcquireData(char *ADCreadHex) {
   // Convertir la lectura de 8 bits a hexadecimal (2 caracteres) y mostrarlo
   sprintf(ADCreadHex, "%02X", ADCread); // Convertir a hexadecimal
   delay(100);
-  
+
   // Mostrar la lectura del ADC en 8 bits
   SerialPrintDebug("ADC read (8 bits): ");
   SerialPrintDebugln(ADCread);
@@ -2062,7 +2112,7 @@ float updateMinElev() {
   // Llamada para leer el progreso actual desde el archivo
   readSuccessFile();
   //writeLogFile("RowProgress = " + String(RowProgress));
-  
+
   // Actualización de MinElev según el valor de RowProgress
   if (RowProgress >= 1 && RowProgress <= 993) {
       return 35.0;
@@ -2179,14 +2229,14 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   PREVIPASS_UTIL_date_stu90_calendar(earliestPass.epoch - EPOCH_90_TO_70_OFFSET,
                                      &viewable_timedata);
 
-  
 
-  
-  String response = "Data: " + String(viewable_timedata.gpsDay) + "/" + String(viewable_timedata.gpsMonth) + "/" + String(viewable_timedata.gpsYear) + ".  The next satellite will be " 
-  + String(satNameTwoChars) +     " at " + String(viewable_timedata.gpsHour) + ":" + String(viewable_timedata.gpsMinute) + ":" + String(viewable_timedata.gpsSecond) + "UTC, with a duration of " 
+
+
+  String response = "Data: " + String(viewable_timedata.gpsDay) + "/" + String(viewable_timedata.gpsMonth) + "/" + String(viewable_timedata.gpsYear) + ".  The next satellite will be "
+  + String(satNameTwoChars) +     " at " + String(viewable_timedata.gpsHour) + ":" + String(viewable_timedata.gpsMinute) + ":" + String(viewable_timedata.gpsSecond) + "UTC, with a duration of "
   + String(int(earliestPass.duration) / 60) + " min and "  + String(int(earliestPass.duration) % 60) + " sec and a maximum elevation of " + String(int(earliestPass.elevationMax)) + "º";
   writeLogFile(response);
-  
+
 
   DateTime now3 = rtcExt.now();
 
@@ -2216,14 +2266,14 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
 }
 void initializeEEPROM() {
     int storedValue = EEPROM.read(0);
-    
+
     if (storedValue == 0xFF) { // Si la EEPROM no ha sido inicializada
         writeLogFile("EEPROM no ini., saving default value.");
         EEPROM.write(0, 0);
         EEPROM.commit();
         storedValue = 6;
     }
-    
+
     currentState = storedValue;
 }
 void eepromSaveTimeCoverage(int timeCoverage) {
@@ -2274,7 +2324,7 @@ void ChangeSecondsInHoursAndMinutes(int *seconds, int *minutes, int *hours) {
 }
 void SendGPSMessage(int timeSending) {
 
-  maskGPS(gpsLat, gpsLong, epochTime, kineisMessage, ADCreadHex);  
+  maskGPS(gpsLat, gpsLong, epochTime, kineisMessage, ADCreadHex);
   sendGPSviaKIM(timeSending / 30, INTERVAL_MS);  // N repetitions : Coverage time divided by the number of seconds beetwen each iteration, 30 sec between them
 }
 //------- FUNCTIONS FOR FTP PROCESS -----------------------------------------------------------------------
@@ -2370,7 +2420,7 @@ int downloadAllFilesFTP(){  // Downloads all files from the FTP to the SD card
 int connectToFTP(){
   #ifdef FTP_SERVER_PRESENT
     SerialPrintDebugln("Connecting to FTP server");
-    if (ftp.OpenConnection()<0){      
+    if (ftp.OpenConnection()<0){
         writeLogFile("ERROR could not connect to FTP!");
         return -1;
     }
@@ -2446,7 +2496,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
 		  delay(10);
 		}
 	}
-  
+
   if ( fileBlinkLed == 1) {
     if (ret < 0 ){
       digitalWrite(LED_R, LOW);
@@ -2456,7 +2506,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
       digitalWrite(LED_R, LOW);
       delay(200);
       digitalWrite(LED_R, HIGH);
-    }  
+    }
     else {
       digitalWrite(LED_G, HIGH);
       delay(200);
@@ -2470,7 +2520,7 @@ int tryDownloadFile(const char* source, int size, const char* dest, int tries){ 
 
 	return ret;
 }
-int DownloadFile(const char* source, int size, const char* dest){ //Downloads a file from the FTP server to the SD card 
+int DownloadFile(const char* source, int size, const char* dest){ //Downloads a file from the FTP server to the SD card
 	// Checking if destination file exists and has the same size
   // Return > 0 (file size) if downloaded
  // Return = 0 if file skipped (already in sd card)
@@ -2910,7 +2960,7 @@ void printAopTable(const AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable
 }
 void eraseFolderContent(const char* folderName) {
   File folder = SD.open(folderName);
-  
+
   while (true) {
     File entry =  folder.openNextFile();
     if (!entry) {
@@ -2918,8 +2968,43 @@ void eraseFolderContent(const char* folderName) {
       break;
     }
     entry.close();
-    SD.remove(entry.name()); // Remove the file    
+    SD.remove(entry.name()); // Remove the file
   }
-  
+
   folder.close();
+}
+
+
+int tryUploadDataToUSV() {
+  /* This function implements state 7, which connects the PopUp buoy to a USV (unmanned surface vehicle) and sends the
+   data recovered from the seafloor.
+   Tasks:
+
+    1. Connect to Wi-Fi -> if not, return -1
+    2. Get ID (whoami http endpoint) -> if not blueboat, return -2
+        TODO: dynamic timeout depending on past detections
+    3. permission to send data? -> if not return -3
+    4. send files list (PUT), the PopUp Server returns the list of files to be transmitted
+    5. send all files requested by the server
+    6. return 0 (success), next state 4 (drifing mode)
+
+   */
+
+  writeLogFile("tryUploadDataToUSV");
+  if (!connectToRaspWiFi()) {
+    writeLogFile("No WiFi found");
+    return -1;
+  }
+  // Get server ID
+  if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)) {
+    writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " failed for wrong HTTP request!" );
+  }
+
+  String serverId = getServerID();
+  if (serverId != "blueboat") {
+    return -2;
+  }
+
+  writeLogFile("Missing file sync...");
+  return 0; // success!
 }
