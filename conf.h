@@ -6,6 +6,13 @@
 
 #define INITIAL_STATE 0
 
+// Uncomment to force state 6 (FRM upload test) on boot without physical buttons.
+// REMOVE before real deployment.
+#define TEST_FORCE_STATE_6
+
+// FTP port for uploading files TO the BlueBoat (non-privileged port, no root needed).
+#define SECRET_FTP_UPLOAD_PORT 2121
+
 ///------ OPTIONS TO DEBUG
 #define SERIAL_DEBUG  // comment line to disable Serial prints
 #define SERIAL_DEBUG_BAUDRATE 115200

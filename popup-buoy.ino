@@ -182,6 +182,12 @@ void setup() {
     EEPROM.begin(EEPROM_SIZE);
     initializeEEPROM();
     currentState = EEPROM.read(0);
+    #ifdef TEST_FORCE_STATE_6
+      currentState = 6;
+      EEPROM.write(0, 6);
+      EEPROM.commit();
+      SerialPrintDebugln("TEST_FORCE_STATE_6: overriding state to 6");
+    #endif
     SerialPrintDebug("CurrentState of POP_UP_BUOY: ");
     SerialPrintDebugln(currentState);
 
@@ -2975,36 +2981,228 @@ void eraseFolderContent(const char* folderName) {
 }
 
 
-int tryUploadDataToUSV() {
-  /* This function implements state 7, which connects the PopUp buoy to a USV (unmanned surface vehicle) and sends the
-   data recovered from the seafloor.
-   Tasks:
+// ---- USV upload helpers --------------------------------------------------
 
-    1. Connect to Wi-Fi -> if not, return -1
-    2. Get ID (whoami http endpoint) -> if not blueboat, return -2
-        TODO: dynamic timeout depending on past detections
-    3. permission to send data? -> if not return -3
-    4. send files list (PUT), the PopUp Server returns the list of files to be transmitted
-    5. send all files requested by the server
-    6. return 0 (success), next state 4 (drifing mode)
+bool getUploadPermission() {
+  HTTPClient http;
+  String url = s("http://") + s(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + s("/uploadpermission/") + String(idBuoy);
+  http.begin(url);
+  int code = http.GET();
+  if (code != 200) {
+    writeLogFile("uploadpermission HTTP error: " + String(code));
+    http.end();
+    return false;
+  }
+  String resp = http.getString();
+  http.end();
+  // Parse {"allow": true} or {"allow": false}
+  return (resp.indexOf("true") >= 0);
+}
 
-   */
+// Builds JSON manifest of SD files and sends PUT /filelist/<id>.
+// Fills wantedOut[] with basenames the server wants; returns count or -1 on error.
+// sdPaths[] is filled in parallel with the full SD path for each offered file.
+int sendManifestAndGetWantedFiles(String* wantedOut, String* sdPathsOut, int maxWanted) {
+  // Candidate SD files to offer
+  const int N_CANDIDATES = 3;
+  String candidates[N_CANDIDATES];
+  candidates[0] = String(GPSfilename);
+  candidates[1] = String(Log_filename);
+  if (SD_data_filename != NULL) {
+    candidates[2] = String(SD_data_filename);
+  }
 
-  writeLogFile("tryUploadDataToUSV");
-  if (!connectToRaspWiFi()) {
-    writeLogFile("No WiFi found");
+  // Build JSON body manually (no ArduinoJson dependency)
+  String body = "{\"files\":[";
+  bool first = true;
+  for (int i = 0; i < N_CANDIDATES; i++) {
+    if (candidates[i].length() == 0) continue;
+    File f = SD.open(candidates[i].c_str(), FILE_READ);
+    if (!f) continue;
+    size_t sz = f.size();
+    f.close();
+    // Basename = everything after last '/'
+    int slash = candidates[i].lastIndexOf('/');
+    String bn = (slash >= 0) ? candidates[i].substring(slash + 1) : candidates[i];
+    if (!first) body += ",";
+    body += "{\"name\":\"" + bn + "\",\"size\":" + String(sz) + "}";
+    first = false;
+  }
+  body += "]}";
+
+  HTTPClient http;
+  String url = s("http://") + s(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + s("/filelist/") + String(idBuoy);
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.PUT(body);
+  if (code != 200) {
+    writeLogFile("filelist PUT HTTP error: " + String(code));
+    http.end();
     return -1;
   }
-  // Get server ID
-  if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)) {
-    writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " failed for wrong HTTP request!" );
+  String resp = http.getString();
+  http.end();
+
+  // Parse {"tobesent": ["GPS_track.csv", "LogFile.txt"]}
+  int arrayStart = resp.indexOf('[');
+  int arrayEnd   = resp.indexOf(']');
+  if (arrayStart < 0 || arrayEnd < 0) return 0;
+
+  String arr = resp.substring(arrayStart + 1, arrayEnd);
+  int n = 0;
+  int pos = 0;
+  while (pos < (int)arr.length() && n < maxWanted) {
+    int q1 = arr.indexOf('"', pos);
+    if (q1 < 0) break;
+    int q2 = arr.indexOf('"', q1 + 1);
+    if (q2 < 0) break;
+    String bn = arr.substring(q1 + 1, q2);
+    // Resolve full SD path from basename
+    String fullPath = "";
+    for (int i = 0; i < N_CANDIDATES; i++) {
+      int sl = candidates[i].lastIndexOf('/');
+      String cbn = (sl >= 0) ? candidates[i].substring(sl + 1) : candidates[i];
+      if (cbn == bn) { fullPath = candidates[i]; break; }
+    }
+    wantedOut[n]   = bn;
+    sdPathsOut[n]  = fullPath;
+    n++;
+    pos = q2 + 1;
+  }
+  return n;
+}
+
+// FTP-uploads each file from SD to the BlueBoat server.
+// Returns number of files successfully uploaded.
+int uploadFilesViaFTP(String* sdPaths, String* basenames, int nFiles) {
+  char uploadDir[16];
+  snprintf(uploadDir, sizeof(uploadDir), "/%d", idBuoy);
+
+  ESP32_FTPClient ftpUp(
+    (char*)SECRET_FTP_SERVER_IP,
+    SECRET_FTP_UPLOAD_PORT,
+    (char*)SECRET_FTP_SERVER_USER,
+    (char*)SECRET_FTP_SERVER_PASS
+  );
+
+  if (ftpUp.OpenConnection() < 0) {
+    writeLogFile("FTP upload: connection failed");
+    return 0;
   }
 
+  ftpUp.InitFile("Type I");  // binary
+  ftpUp.MakeDir(uploadDir);  // may return error if already exists — that's OK
+  ftpUp.ChangeWorkDir(uploadDir);
+
+  int uploaded = 0;
+  uint8_t buf[512];
+
+  for (int i = 0; i < nFiles; i++) {
+    if (sdPaths[i].length() == 0) {
+      writeLogFile("No SD path for " + basenames[i] + " — skipping");
+      continue;
+    }
+    File f = SD.open(sdPaths[i].c_str(), FILE_READ);
+    if (!f) {
+      writeLogFile("Cannot open " + sdPaths[i] + " — skipping");
+      continue;
+    }
+    writeLogFile("FTP uploading " + basenames[i] + " (" + String(f.size()) + " B)");
+    ftpUp.NewFile(basenames[i].c_str());
+    while (f.available()) {
+      int n = f.read(buf, sizeof(buf));
+      if (n > 0) ftpUp.WriteData(buf, n);
+    }
+    ftpUp.CloseFile();
+    f.close();
+    uploaded++;
+    writeLogFile("Uploaded " + basenames[i]);
+  }
+
+  ftpUp.CloseConnection();
+  return uploaded;
+}
+
+bool confirmTransfer(int nSent) {
+  HTTPClient http;
+  String url = s("http://") + s(SECRET_FTP_SERVER_IP) + ":" + String(SECRET_FTP_SERVER_PORT) + s("/transfercomplete/") + String(idBuoy);
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  String body = "{\"files_sent\":" + String(nSent) + "}";
+  int code = http.POST(body);
+  String resp = http.getString();
+  http.end();
+  bool ok = (code == 200) && (resp.indexOf("\"success\": true") >= 0 || resp.indexOf("\"success\":true") >= 0);
+  writeLogFile("confirmTransfer: code=" + String(code) + " success=" + String(ok));
+  return ok;
+}
+
+// ---- Main entry point ----------------------------------------------------
+
+int tryUploadDataToUSV() {
+  /* Connects the buoy to the BlueBoat USV and uploads SD data.
+     Protocol:
+       1. Connect to BlueBoat WiFi AP       → -1 if fail
+       2. Sync RTC, verify server identity  → -2 if not blueboat
+       3. Request upload permission         → -3 if denied
+       4. PUT file manifest, get wanted list
+       5. FTP STOR each requested file
+       6. POST transfer-complete, return 0
+  */
+
+  writeLogFile("tryUploadDataToUSV: starting");
+
+  // Step 1: WiFi
+  if (!connectToRaspWiFi()) {
+    writeLogFile("tryUploadDataToUSV: no WiFi");
+    return -1;
+  }
+
+  // Step 2: RTC sync + server identity
+  if (!sendHttpGetRequest(idBuoy, GETTIME, releaseFlag, releaseMode, sleeptime_h, sleeptime_m)) {
+    writeLogFile("tryUploadDataToUSV: RTC sync failed (non-fatal)");
+  }
   String serverId = getServerID();
   if (serverId != "blueboat") {
+    writeLogFile("tryUploadDataToUSV: server is not blueboat (got '" + serverId + "')");
     return -2;
   }
+  writeLogFile("tryUploadDataToUSV: server identified as blueboat");
 
-  writeLogFile("Missing file sync...");
-  return 0; // success!
+  // Step 3: Upload permission
+  if (!getUploadPermission()) {
+    writeLogFile("tryUploadDataToUSV: upload permission denied");
+    return -3;
+  }
+  writeLogFile("tryUploadDataToUSV: permission granted");
+
+  // Step 4: File manifest
+  const int MAX_UPLOAD_FILES = 8;
+  String wantedBasenames[MAX_UPLOAD_FILES];
+  String wantedSDPaths[MAX_UPLOAD_FILES];
+  int nWanted = sendManifestAndGetWantedFiles(wantedBasenames, wantedSDPaths, MAX_UPLOAD_FILES);
+  if (nWanted < 0) {
+    writeLogFile("tryUploadDataToUSV: manifest exchange failed");
+    return -4;
+  }
+  writeLogFile("tryUploadDataToUSV: server wants " + String(nWanted) + " files");
+
+  if (nWanted == 0) {
+    writeLogFile("tryUploadDataToUSV: server already has all files — confirming");
+    confirmTransfer(0);
+    return 0;
+  }
+
+  // Step 5: FTP upload
+  int uploaded = uploadFilesViaFTP(wantedSDPaths, wantedBasenames, nWanted);
+  writeLogFile("tryUploadDataToUSV: uploaded " + String(uploaded) + "/" + String(nWanted) + " files");
+
+  // Step 6: Confirm
+  if (!confirmTransfer(uploaded)) {
+    writeLogFile("tryUploadDataToUSV: server did not confirm receipt");
+    return -5;
+  }
+
+  writeLogFile("tryUploadDataToUSV: complete!");
+  return 0;
 }
