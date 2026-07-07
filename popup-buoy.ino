@@ -3013,7 +3013,7 @@ bool getUploadPermission() {
 int sendManifestAndGetWantedFiles(String* wantedOut, String* sdPathsOut, int maxWanted) {
   // Candidate SD files to offer
   const int N_CANDIDATES = 3;
-  String candidates[N_CANDIDATES];
+  static String candidates[N_CANDIDATES];  // static: lives in BSS, not stack
   candidates[0] = String(GPSfilename);
   candidates[1] = String(Log_filename);
   if (SD_data_filename != NULL) {
@@ -3086,24 +3086,29 @@ int uploadFilesViaFTP(String* sdPaths, String* basenames, int nFiles) {
   char uploadDir[16];
   snprintf(uploadDir, sizeof(uploadDir), "/%d", idBuoy);
 
-  ESP32_FTPClient ftpUp(
+  // Heap-allocate the FTP client: its internal buffers total ~5.7 KB (inBuffer[4096]
+  // + clientBuf[1500] + outBuf[128]), which would overflow the loopTask stack.
+  ESP32_FTPClient* ftpUp = new ESP32_FTPClient(
     (char*)SECRET_FTP_SERVER_IP,
     SECRET_FTP_UPLOAD_PORT,
     (char*)SECRET_FTP_SERVER_USER,
     (char*)SECRET_FTP_SERVER_PASS
   );
 
-  if (ftpUp.OpenConnection() < 0) {
+  if (ftpUp->OpenConnection() < 0) {
     writeLogFile("FTP upload: connection failed");
+    delete ftpUp;
     return 0;
   }
 
-  ftpUp.InitFile("Type I");  // binary
-  ftpUp.MakeDir(uploadDir);  // may return error if already exists — that's OK
-  ftpUp.ChangeWorkDir(uploadDir);
+  // The /filelist endpoint already calls os.makedirs on the server side, so the
+  // directory always exists by the time we get here. Calling MakeDir would return
+  // 550 File exists, which sets _isConnected=false in the library and breaks all
+  // subsequent calls. Skip MakeDir and go straight to CWD.
+  ftpUp->ChangeWorkDir(uploadDir);
 
   int uploaded = 0;
-  uint8_t buf[512];
+  static uint8_t buf[512];
 
   for (int i = 0; i < nFiles; i++) {
     if (sdPaths[i].length() == 0) {
@@ -3116,18 +3121,20 @@ int uploadFilesViaFTP(String* sdPaths, String* basenames, int nFiles) {
       continue;
     }
     writeLogFile("FTP uploading " + basenames[i] + " (" + String(f.size()) + " B)");
-    ftpUp.NewFile(basenames[i].c_str());
+    ftpUp->InitFile("Type I");  // opens fresh PASV data connection for this STOR
+    ftpUp->NewFile(basenames[i].c_str());
     while (f.available()) {
       int n = f.read(buf, sizeof(buf));
-      if (n > 0) ftpUp.WriteData(buf, n);
+      if (n > 0) ftpUp->WriteData(buf, n);
     }
-    ftpUp.CloseFile();
+    ftpUp->CloseFile();
     f.close();
     uploaded++;
     writeLogFile("Uploaded " + basenames[i]);
   }
 
-  ftpUp.CloseConnection();
+  ftpUp->CloseConnection();
+  delete ftpUp;
   return uploaded;
 }
 
@@ -3186,8 +3193,8 @@ int tryUploadDataToUSV() {
 
   // Step 4: File manifest
   const int MAX_UPLOAD_FILES = 8;
-  String wantedBasenames[MAX_UPLOAD_FILES];
-  String wantedSDPaths[MAX_UPLOAD_FILES];
+  static String wantedBasenames[MAX_UPLOAD_FILES];  // static: BSS, not stack
+  static String wantedSDPaths[MAX_UPLOAD_FILES];
   int nWanted = sendManifestAndGetWantedFiles(wantedBasenames, wantedSDPaths, MAX_UPLOAD_FILES);
   if (nWanted < 0) {
     writeLogFile("tryUploadDataToUSV: manifest exchange failed");

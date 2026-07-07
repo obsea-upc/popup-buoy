@@ -66,7 +66,7 @@
 //------ Definition for FTP
 #define FTP_SERVER_PRESENT
 #define FTP_BATCH_FILES 64 // quantitat de fitxers que et descarregues cada vegada
-//#define FTP_SERIAL_DEBUG
+#define FTP_SERIAL_DEBUG
 
 //------ Definition for GPS module
 #define RXPin_GPS 4
