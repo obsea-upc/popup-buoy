@@ -182,12 +182,6 @@ void setup() {
     EEPROM.begin(EEPROM_SIZE);
     initializeEEPROM();
     currentState = EEPROM.read(0);
-    #ifdef TEST_FORCE_STATE_6
-      currentState = 6;
-      EEPROM.write(0, 6);
-      EEPROM.commit();
-      SerialPrintDebugln("TEST_FORCE_STATE_6: overriding state to 6");
-    #endif
     SerialPrintDebug("CurrentState of POP_UP_BUOY: ");
     SerialPrintDebugln(currentState);
 
@@ -407,14 +401,10 @@ void setup() {
   //------- KIM MODULE SETUP -------------------------------------------------------------------------------
     if (currentState == 4 or currentState == 5 or currentState == 6) {
       SerialPrintDebugln("KIM Module Setup ---->");
-#ifdef TEST_SKIP_KIM
-      SerialPrintDebugln("TEST_SKIP_KIM: skipping KIM init");
-#else
       while (!KIM.check()) {
         SerialPrintDebugln("Failed connexion to KIM module. Retriying in 3s...");
         delay(1000);
       }
-#endif
       SerialPrintDebugln(KIM.get_SN());
       delay(delayKIM);
       SerialPrintDebugln(KIM.get_ID());
@@ -1209,14 +1199,10 @@ void changeStateTo(int newState) {
 }
 void configureKIM(){
   SerialPrintDebugln("KIM Initial Setup ---->");
-#ifdef TEST_SKIP_KIM
-  SerialPrintDebugln("TEST_SKIP_KIM: skipping KIM init");
-#else
   while (!KIM.check()) {
     SerialPrintDebugln("Failed connexion to KIM module. Retriying in 3s...");
     delay(1000);
   }
-#endif
   if(currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5){
     if (KIM.set_PWR(PWR2, strlen(PWR2)) == OK_KIM) {
       writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
@@ -3018,6 +3004,8 @@ int sendManifestAndGetWantedFiles(String* wantedOut, String* sdPathsOut, int max
   candidates[1] = String(Log_filename);
   if (SD_data_filename != NULL) {
     candidates[2] = String(SD_data_filename);
+  } else {
+    candidates[2] = "";
   }
 
   // Build JSON body manually (no ArduinoJson dependency)

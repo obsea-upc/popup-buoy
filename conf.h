@@ -6,14 +6,6 @@
 
 #define INITIAL_STATE 0
 
-// Uncomment to force state 6 (FRM upload test) on boot without physical buttons.
-// REMOVE before real deployment.
-#define TEST_FORCE_STATE_6
-
-// Uncomment to skip KIM module init (bench testing without hardware).
-// REMOVE before real deployment.
-#define TEST_SKIP_KIM
-
 // FTP port for uploading files TO the BlueBoat (non-privileged port, no root needed).
 #define SECRET_FTP_UPLOAD_PORT 2121
 
