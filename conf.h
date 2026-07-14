@@ -25,6 +25,7 @@
 #define PB_1 25  //12
 #define PB_2 26  //14
 #define PB_3 27  //27
+//#define PB_3 39 
 
 // ----- Definitions for leds
 #define LED_R 32  //25
@@ -32,8 +33,9 @@
 #define LED_G 0   //32
 
 //------ Definition for power relay
-#define GPS_KIM 13  
+#define GPS_KIM 13  //future just KIM
 #define SD_card 14
+//#define GPS 27 future just GPS 
 #define DISCONNECT_PHER  //Disconnect KIM and GPS between transmissions
 
 //------ Definition ADC read

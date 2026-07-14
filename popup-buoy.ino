@@ -189,6 +189,7 @@ void setup() {
     pinMode(PB_1, INPUT_PULLUP);
     pinMode(PB_2, INPUT_PULLUP);
     pinMode(PB_3, INPUT_PULLUP);
+    //pinMode(PB_3, INPUT); --> cambio
 
   //------- LED DEFINITION ---------------------------------------------------------------------------------
     pinMode(LED_R, OUTPUT);
@@ -200,8 +201,11 @@ void setup() {
     digitalWrite(LED_G, HIGH);  // initialise off
 
   //------- POWER RELAY DEFINITION -------------------------------------------------------------------------
-    pinMode(GPS_KIM, OUTPUT);
+    pinMode(GPS_KIM, OUTPUT); //future just KIM
     pinMode(SD_card, OUTPUT);
+    //pinMode(GPS, OUTPUT)
+    //digitalWrite(GPS_KIM, LOW); --> fixar-los a low d'inici
+    //digitalWrite(GPS, LOW);
     digitalWrite(SD_card, HIGH);
     if (currentState == 4 or currentState == 5 or currentState == 6) {
       digitalWrite(GPS_KIM, HIGH);
@@ -938,14 +942,14 @@ void loop() {
           writeLogFile("Sending updated GPS position");
           SendGPSMessage(timeSending);
 
-          int ret = tryUploadDataToUSV();
+          /*int ret = tryUploadDataToUSV();
           if (ret == 0) {
             // Upload data sucess, move to state 4
             changeStateTo(4);
             writeLogFile("Entering Sleep mode");
             SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
             delay(10);
-          }
+          }*/
         }
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
         if (gpsFix) {
