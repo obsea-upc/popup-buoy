@@ -72,7 +72,7 @@
 #define KIM_RXD0 16
 #define KIM_TXD0 17
 #define KIMBaud 9600  //4800 in prev KIM1
-#define maxAOPSize 10  //Maxim number of satellites in AOP tamble
+#define maxAOPSize 30  //Maxim number of satellites in AOP tamble
 //#define stdMinElev 20.0f                                                                                                                                 // SD
 #define critMinElev 45.0f                                                                                                                               // SD
 #define FORCE_A2_UPLINK_STATUS

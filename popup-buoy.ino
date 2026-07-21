@@ -21,7 +21,8 @@
 
 
 WORKING PROGRESS
-1. Calibrate battey read
+1. Calibrate battey read dfr tert ert wert
+
 
 FUTURE IMPROVEMENTS
 1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo
@@ -461,8 +462,8 @@ void loop() {
       currentState = 4;
       eepromSaveState(currentState);
       //SetCoverageDurationTo_0();
-      eepromSaveTimeCoverage(500);
-      SetCoverageStateTo(0);
+      eepromSaveTimeCoverage(50);
+      SetCoverageStateTo(1);
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();
       SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state 4 with no coverage.");
