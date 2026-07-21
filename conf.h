@@ -68,7 +68,6 @@
 //------ Definition for KINEIS module
 #define INTERVAL_MS 30000         // Time in ms between two kineis messages (ms)
 #define INTERVAL_SEND_MS 6000    //Boosting the message
-#define INTERVAL_SEND_MS 6000    //Boosting the message
 #define KIM_RXD0 16
 #define KIM_TXD0 17
 #define KIMBaud 9600  //4800 in prev KIM1

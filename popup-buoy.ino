@@ -131,8 +131,6 @@ FUTURE IMPROVEMENTS
   int max_sleep_time_s; //Maximum surface sleep time in s at any condition (to ensure the recovery)
   int timetransm_GPS_s; //Time for normal GPS transmission, minimum --> Minimum duration --> 300 s =10 messages .. now is 2 messages
   int timetransm_GPS_noArg_s; //Time for GPS transmission, no ARGOS coverage (default 90 -> 3 messages)
-  int FRMsleepTime_s; //Time to sleep at stage 6 between transmissions
-  int FRMsleepTime_fail_s; //Time to sleep at stage 6 when GPS fail
   unsigned long maxFRM; //Max time in stage 6
   int maxWIFITimeout;
   int sleepTimeWifiAttempt;
@@ -942,15 +940,6 @@ void loop() {
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           writeLogFile("Sending updated GPS position");
           SendGPSMessage(timeSending);
-
-          /*int ret = tryUploadDataToUSV();
-          if (ret == 0) {
-            // Upload data sucess, move to state 4
-            changeStateTo(4);
-            writeLogFile("Entering Sleep mode");
-            SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-            delay(10);
-          }*/
         }
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
         if (gpsFix) {
@@ -1690,43 +1679,6 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
   return false;
 }
 
-String getServerID() {
-  HTTPClient http;
-  String url;
-  url = s("http://") + s(SECRET_FTP_SERVER_IP) + ":" + s(SECRET_FTP_SERVER_PORT) + s("/whoami");
-  http.begin(url);
-  int httpResponseCode = http.GET();
-
-  if (httpResponseCode > 300) {
-    return s("");
-  }
-
-  String jsonString = http.getString();  // Obtén la respuesta como string
-
-  int keyPos = jsonString.indexOf("\"id\"");
-  String myid = "";
-
-  if (keyPos != -1) {
-    // 2. Find the colon ':' after the "id" key
-    int colonPos = jsonString.indexOf(":", keyPos);
-    if (colonPos != -1) {
-      // 3. Find the opening quote '"' of the value after the colon
-      int startQuote = jsonString.indexOf("\"", colonPos);
-      if (startQuote != -1) {
-        // 4. Find the closing quote '"' right after the opening quote
-        int endQuote = jsonString.indexOf("\"", startQuote + 1);
-        if (endQuote != -1) {
-          // 5. Extract everything between the two quotes
-          myid = jsonString.substring(startQuote + 1, endQuote);
-        }
-      }
-    }
-  } else {
-    writeLogFile("Key 'id' not found in the string.");
-  }
-  return myid;
-}
-
 bool connectToRaspWiFi() {
   WiFi.begin(WIFI_SSID2, WIFI_PASS2);
   unsigned long startAttemptTime = millis();
@@ -2113,29 +2065,6 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
   memset(hex_latitude, 0, sizeof(hex_latitude));
   memset(hex_epochTime, 0, sizeof(hex_epochTime));
 }
-float updateMinElev() {
-  // Llamada para leer el progreso actual desde el archivo
-  readSuccessFile();
-  //writeLogFile("RowProgress = " + String(RowProgress));
-
-  // Actualización de MinElev según el valor de RowProgress
-  if (RowProgress >= 1 && RowProgress <= 993) {
-      return 35.0;
-  } else if (RowProgress >= 994 && RowProgress <= 1986) {
-      return 30.0;
-  } else if (RowProgress >= 1987 && RowProgress <= 2979) {
-      return 25.0;
-  } else if (RowProgress >= 2980 && RowProgress <= 3972) {
-      return 20.0;
-  } else if (RowProgress >= 3973 && RowProgress <= 4965) {
-      return 15.0;
-  } else if (RowProgress >= 4966) {
-      return 10.0;
-  } else {
-      // Valor por defecto si RowProgress no es válido
-      return 10.0;
-  }
-}
 int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable, float MinElev) {
 
   DateTime now = rtcExt.now();
@@ -2162,7 +2091,6 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
     nextDay += 1;
   }
 
-  //MinElev = updateMinElev();
   writeLogFile("Min. elevation set to: " + String(MinElev));
 
   struct PredictionPassConfiguration_t prepasConfiguration = {
@@ -2869,16 +2797,6 @@ void getInfoFromConfFile() {
         SerialPrintDebugln("Max time at stage 6: " + String(DataFromVariable) + " hours");
       }
 
-      if (VariableNameStr == "FRM_SLEEP_s") {
-        FRMsleepTime_s = DataFromVariable;
-        SerialPrintDebugln("Sleep time between GPS transmissions at stage 6: " + String(DataFromVariable) + " seconds");
-      }
-
-      if (VariableNameStr == "FRM_SLEEP_NOGPS_s") {
-        FRMsleepTime_fail_s = DataFromVariable;
-        SerialPrintDebugln("Sleep time at stage 6 when GPS fail: " + String(DataFromVariable) + " seconds");
-      }
-
       if (VariableNameStr == "MinElev") {  // NUEVA VARIABLE FLOAT
         MinElev = static_cast<float>(DataFromVariable);  // Conversión explícita
         writeLogFile("Minimum Elevation: " + String(MinElev));
@@ -2962,54 +2880,4 @@ void printAopTable(const AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable
                       aopTable[i].ascNodeDriftDeg, aopTable[i].orbitPeriodMin, aopTable[i].semiMajorAxisDriftMeterPerDay, aopTable[i].entryName);
     }
     SerialPrintDebugln("};");
-}
-void eraseFolderContent(const char* folderName) {
-  File folder = SD.open(folderName);
-
-  while (true) {
-    File entry =  folder.openNextFile();
-    if (!entry) {
-      // No more files
-      break;
-    }
-    entry.close();
-    SD.remove(entry.name()); // Remove the file
-  }
-
-  folder.close();
-}
-
-
-int tryUploadDataToUSV() {
-  /* This function implements state 7, which connects the PopUp buoy to a USV (unmanned surface vehicle) and sends the
-   data recovered from the seafloor.
-   Tasks:
-
-    1. Connect to Wi-Fi -> if not, return -1
-    2. Get ID (whoami http endpoint) -> if not blueboat, return -2
-        TODO: dynamic timeout depending on past detections
-    3. permission to send data? -> if not return -3
-    4. send files list (PUT), the PopUp Server returns the list of files to be transmitted
-    5. send all files requested by the server
-    6. return 0 (success), next state 4 (drifing mode)
-
-   */
-
-  writeLogFile("tryUploadDataToUSV");
-  if (!connectToRaspWiFi()) {
-    writeLogFile("No WiFi found");
-    return -1;
-  }
-  // Get server ID
-  if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)) {
-    writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " failed for wrong HTTP request!" );
-  }
-
-  String serverId = getServerID();
-  if (serverId != "blueboat") {
-    return -2;
-  }
-
-  writeLogFile("Missing file sync...");
-  return 0; // success!
 }
