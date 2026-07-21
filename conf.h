@@ -5,6 +5,7 @@
 ////----- TEST PARAMETERS
 
 #define INITIAL_STATE 0
+#define TEST_FORCE_GPS_VILANOVA_PB2  // TEMP bench test: tap PB_2 during GPS search to fake a Vilanova i la Geltru fix (comment out before deployment)
 
 ///------ OPTIONS TO DEBUG
 #define SERIAL_DEBUG  // comment line to disable Serial prints

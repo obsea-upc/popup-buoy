@@ -721,67 +721,7 @@ void loop() {
         delay(10);
 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
-        if (gpsFix) {
-
-          SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
-
-          AopSatelliteEntry_t aopTable[maxAOPSize];
-          uint8_t nbSatsInAopTable = maxAOPSize;
-
-          readSatelliteData(aopTable, nbSatsInAopTable);
-          #ifdef SERIAL_DEBUG
-            printAopTable(aopTable, nbSatsInAopTable);
-          #endif
-          bool SPP_progress = true;
-
-          while (SPP_progress){
-
-            secondsBeforeNextStatellite = NextSatellite(gpsLat, gpsLong, aopTable, nbSatsInAopTable, MinElev);
-            secondsBeforeNextStatellite -= TIME_LESS_BEFORE_AWAKENING;  // Used to awake before being in range of the satellite
-            SetCoverageStateTo(1);                                     // There is coverage so we put it in EEPROM
-            // no need to save coverage duration, saved inside the funtion NextSatellite
-            if (secondsBeforeNextStatellite > 0) {
-              SPP_progress=false;
-            }
-            // --- HANDLING THE OVERLAPPING AND THE SPP ERRORS ---
-            if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite > 70) {  // To be able to use the current coverage
-              Decimal_CoverageDuration += secondsBeforeNextStatellite;                                             // To get the duration left on the coverage
-              eepromSaveTimeCoverage(Decimal_CoverageDuration);
-              writeLogFile("SPP is overlapping, starting state 4 again.");
-              changeStateTo(4);
-              delay(10);
-              secondsBeforeNextStatellite=5;      //go directly to state 4 to continue transmitting, no sleep
-              SPP_progress=false;
-
-            } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
-              //Decimal_CoverageDuration += secondsBeforeNextStatellite;
-              Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
-              //SetCoverageDurationTo_0();
-              SetCoverageStateTo(0);
-              writeLogFile("SPP ERROR. Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
-              goToSleep(Decimal_CoverageDuration);
-              SPP_progress=true;
-            }
-          }
-        } else {  // If GPS is not fixed
-
-          Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
-          writeLogFile("Failed to fix GPS, no data was stored to SD");
-          SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
-          SetCoverageStateTo(0);
-          Counter_FailGPS += 1;       // each time the gps can't find the data, the counter increase of 1
-          eepromSaveCounterGPSFail(Counter_FailGPS);
-
-          if (Counter_FailGPS > 0 && Counter_FailGPS < 3) {  //When the buoy fail less than 3 times in a row, the sleeping time is shorter
-            secondsBeforeNextStatellite = sleeptime_errorGPS_s;
-            writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
-          } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
-            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
-            SetCounterFailGPSTo_0();
-            writeLogFile("GPS failing : counter = 3 ");
-          }
-
-        }
+        runSatellitePassPrediction(false);
 
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---
         if (secondsBeforeNextStatellite > max_sleep_time_s) {  // in seconds
@@ -842,68 +782,7 @@ void loop() {
         delay(10);
 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
-        if (gpsFix) {
-
-          SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
-
-          AopSatelliteEntry_t aopTable[maxAOPSize];
-          uint8_t nbSatsInAopTable = maxAOPSize;
-
-          readSatelliteData(aopTable, nbSatsInAopTable);
-          #ifdef SERIAL_DEBUG
-            printAopTable(aopTable, nbSatsInAopTable);
-          #endif
-          MinElev = critMinElev;
-          bool SPP_progress = true;
-
-          while (SPP_progress){
-
-            secondsBeforeNextStatellite = NextSatellite(gpsLat, gpsLong, aopTable, nbSatsInAopTable, MinElev);
-            secondsBeforeNextStatellite -= TIME_LESS_BEFORE_AWAKENING;  // Used to awake before being in range of the satellite
-            SetCoverageStateTo(1);                                     // There is coverage so we put it in EEPROM
-            if (secondsBeforeNextStatellite > 0) {
-              SPP_progress=false;
-            }
-            // --- HANDLING THE OVERLAPPING AND THE SPP ERRORS ---
-            if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite > 70) {  // To be able to use the current coverage
-              Decimal_CoverageDuration += secondsBeforeNextStatellite;                                             // To get the duration left on the coverage
-              eepromSaveTimeCoverage(Decimal_CoverageDuration);
-              writeLogFile("SPP is overlapping, starting state 5 again.");
-              changeStateTo(5);
-              delay(10);
-              secondsBeforeNextStatellite=0;      //go directly to state 4 to continue transmitting, no sleep
-              SPP_progress=false;
-
-            } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
-              secondsBeforeNextStatellite = CRIT_FACTOR*3600; //in lowlevel mode, no need to repeat the SPP in SPP error, sleep 3 hours
-              SetCoverageDurationTo_0();
-              SetCoverageStateTo(0);
-              writeLogFile("SPP ERROR. Sleeping for 3 h and starting state 5 again with no satellite.");
-              SPP_progress=false;
-            }
-
-          }
-
-
-        } else {  // If GPS is not fixed
-
-          Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
-          writeLogFile("Failed to fix GPS, no data was stored to SD");
-          SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
-          SetCoverageStateTo(0);
-          Counter_FailGPS += 1;       // each time the gps can't find the data, the counter increase of 1
-          eepromSaveCounterGPSFail(Counter_FailGPS);
-
-          if (Counter_FailGPS > 0 && Counter_FailGPS < 3) {  //When the buoy fail less than 3 times in a row, the sleeping time is shorter
-            secondsBeforeNextStatellite = sleeptime_errorGPS_s*CRIT_FACTOR;   // As we are in 5 battery critical, all times larger
-            writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
-          } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
-            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s*CRIT_FACTOR;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
-            SetCounterFailGPSTo_0();
-            writeLogFile("GPS failing : counter = 3 ");
-          }
-
-        }
+        runSatellitePassPrediction(true);
 
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---  NOT USED IN LOWBAT_MODE
       // --- CHANGING THE BUOY STATE AND SLEEP ---
@@ -942,64 +821,7 @@ void loop() {
           SendGPSMessage(timeSending);
         }
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
-        if (gpsFix) {
-          SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
-          AopSatelliteEntry_t aopTable[maxAOPSize];
-          uint8_t nbSatsInAopTable = maxAOPSize;
-          readSatelliteData(aopTable, nbSatsInAopTable);
-          #ifdef SERIAL_DEBUG
-            printAopTable(aopTable, nbSatsInAopTable);
-          #endif
-          //MinElev = stdMinElev;
-          bool SPP_progress = true;
-
-          while (SPP_progress){
-            secondsBeforeNextStatellite = NextSatellite(gpsLat, gpsLong, aopTable, nbSatsInAopTable, MinElev);
-            secondsBeforeNextStatellite -= TIME_LESS_BEFORE_AWAKENING;  // Used to awake before being in range of the satellite
-            SetCoverageStateTo(1);                                     // There is coverage so we put it in EEPROM
-            // no need to save coverage duration, saved inside the funtion NextSatellite
-            if (secondsBeforeNextStatellite > 0) {
-              SPP_progress=false;
-            }
-            // --- HANDLING THE OVERLAPPING AND THE SPP ERRORS ---
-            if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite > 70) {  // To be able to use the current coverage
-              Decimal_CoverageDuration += secondsBeforeNextStatellite;                                             // To get the duration left on the coverage
-              eepromSaveTimeCoverage(Decimal_CoverageDuration);
-              writeLogFile("SPP is overlapping, starting state 4 again.");
-              changeStateTo(4);
-              delay(10);
-              secondsBeforeNextStatellite=5;      //go directly to state 4 to continue transmitting, no sleep
-              SPP_progress=false;
-
-            } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
-              //Decimal_CoverageDuration += secondsBeforeNextStatellite;
-              Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
-              //SetCoverageDurationTo_0();
-              SetCoverageStateTo(0);
-              writeLogFile("SPP ERROR. Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
-              goToSleep(Decimal_CoverageDuration);
-              SPP_progress=true;
-            }
-          }
-        } else {  // If GPS is not fixed
-
-          Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
-          writeLogFile("Failed to fix GPS, no data was stored to SD");
-          SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
-          SetCoverageStateTo(0);
-          Counter_FailGPS += 1;       // each time the gps can't find the data, the counter increase of 1
-          eepromSaveCounterGPSFail(Counter_FailGPS);
-
-          if (Counter_FailGPS > 0 && Counter_FailGPS < 3) {  //When the buoy fail less than 3 times in a row, the sleeping time is shorter
-            secondsBeforeNextStatellite = sleeptime_errorGPS_s;
-            writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
-          } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
-            secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
-            SetCounterFailGPSTo_0();
-            writeLogFile("GPS failing : counter = 3 ");
-          }
-
-        }
+        runSatellitePassPrediction(false);
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---
         if (secondsBeforeNextStatellite > max_sleep_time_s) {  // in seconds
           secondsBeforeNextStatellite = max_sleep_time_s;      // to fix the time to sleep to YY min so that even when there is no ARGOS coverage you transmitt for boat recovery
@@ -1769,6 +1591,26 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
   gpsFix = false;
 
   while (gpsState == 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
+    #ifdef TEST_FORCE_GPS_VILANOVA_PB2
+      // === TEMPORARY BENCH-TEST CRUTCH === press PB_2 to fake a GPS fix indoors so the Surface/SPP path can run.
+      // Injects Vilanova i la Geltru coordinates and takes the time from the RTC. Remove (comment the #define in conf.h) before deployment.
+      if (digitalRead(PB_2) == false) {
+        gpsLat  = 41.2241;   // Vilanova i la Geltru latitude (N)
+        gpsLong = 1.7260;    // Vilanova i la Geltru longitude (E)
+        DateTime nowRTC = rtcExt.now();
+        gpsYear   = nowRTC.year();
+        gpsMonth  = nowRTC.month();
+        gpsDay    = nowRTC.day();
+        gpsHour   = nowRTC.hour();
+        gpsMinute = nowRTC.minute();
+        gpsSecond = nowRTC.second();
+        epochTime = nowRTC.unixtime();
+        gpsFix    = true;
+        gpsState  = 1;
+        SerialPrintDebugln(F("[TEST] PB_2 pressed -> forcing Vilanova i la Geltru GPS fix from RTC"));
+        break;
+      }
+    #endif
     //SerialPrintDebugln("GPS acquiring data------>");
     while (gpsSerial.available() > 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
       if (gps.encode(gpsSerial.read())) {
@@ -2064,6 +1906,83 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
   memset(hex_longitude, 0, sizeof(hex_longitude));
   memset(hex_latitude, 0, sizeof(hex_latitude));
   memset(hex_epochTime, 0, sizeof(hex_epochTime));
+}
+// Satellite Pass Prediction + GPS-fail handling shared by states 4, 5 and 6.
+// Sets the global secondsBeforeNextStatellite and updates the EEPROM coverage flags.
+// lowPower=true is the critical-battery variant (state 5): raises the minimum elevation,
+// multiplies the GPS-fail sleeps by CRIT_FACTOR, and does NOT re-run SPP on a coverage error.
+void runSatellitePassPrediction(bool lowPower) {
+  if (gpsFix) {
+
+    SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
+
+    AopSatelliteEntry_t aopTable[maxAOPSize];
+    uint8_t nbSatsInAopTable = maxAOPSize;
+
+    readSatelliteData(aopTable, nbSatsInAopTable);
+    #ifdef SERIAL_DEBUG
+      printAopTable(aopTable, nbSatsInAopTable);
+    #endif
+    if (lowPower) {
+      MinElev = critMinElev;
+    }
+    bool SPP_progress = true;
+
+    while (SPP_progress){
+
+      secondsBeforeNextStatellite = NextSatellite(gpsLat, gpsLong, aopTable, nbSatsInAopTable, MinElev);
+      secondsBeforeNextStatellite -= TIME_LESS_BEFORE_AWAKENING;  // Used to awake before being in range of the satellite
+      SetCoverageStateTo(1);                                     // There is coverage so we put it in EEPROM
+      // no need to save coverage duration, saved inside the funtion NextSatellite
+      if (secondsBeforeNextStatellite > 0) {
+        SPP_progress=false;
+      }
+      // --- HANDLING THE OVERLAPPING AND THE SPP ERRORS ---
+      if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite > 70) {  // To be able to use the current coverage
+        Decimal_CoverageDuration += secondsBeforeNextStatellite;                                             // To get the duration left on the coverage
+        eepromSaveTimeCoverage(Decimal_CoverageDuration);
+        writeLogFile("SPP is overlapping, starting state " + String(lowPower ? 5 : 4) + " again.");
+        changeStateTo(lowPower ? 5 : 4);
+        delay(10);
+        secondsBeforeNextStatellite = lowPower ? 0 : 5;      //go directly to the state to continue transmitting, no sleep
+        SPP_progress=false;
+
+      } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over
+        if (lowPower) {
+          secondsBeforeNextStatellite = CRIT_FACTOR*3600; //in lowlevel mode, no need to repeat the SPP in SPP error, sleep 3 hours
+          SetCoverageDurationTo_0();
+          SetCoverageStateTo(0);
+          writeLogFile("SPP ERROR. Sleeping for 3 h and starting state 5 again with no satellite.");
+          SPP_progress=false;
+        } else {
+          Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
+          SetCoverageStateTo(0);
+          writeLogFile("SPP ERROR. Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
+          goToSleep(Decimal_CoverageDuration);
+          SPP_progress=true;
+        }
+      }
+    }
+  } else {  // If GPS is not fixed
+
+    Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
+    writeLogFile("Failed to fix GPS, no data was stored to SD");
+    SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
+    SetCoverageStateTo(0);
+    Counter_FailGPS += 1;       // each time the gps can't find the data, the counter increase of 1
+    eepromSaveCounterGPSFail(Counter_FailGPS);
+
+    int critFactor = lowPower ? CRIT_FACTOR : 1;  // battery-critical (state 5) uses longer sleeps
+    if (Counter_FailGPS > 0 && Counter_FailGPS < 3) {  //When the buoy fail less than 3 times in a row, the sleeping time is shorter
+      secondsBeforeNextStatellite = sleeptime_errorGPS_s * critFactor;
+      writeLogFile("GPS failing : counter = " + String(Counter_FailGPS));
+    } else if (Counter_FailGPS >= 3) {                                  // 3rd GPS failing, counter goes to 0 and sleep for 1 hour
+      secondsBeforeNextStatellite = sleeptime_errorGPS_recurrent_s * critFactor;  //In reality we will never sleep 1h becaule it will be later set to a maximum sleep of 20 minutes, so cycle will be 3, 3, 20
+      SetCounterFailGPSTo_0();
+      writeLogFile("GPS failing : counter = 3 ");
+    }
+
+  }
 }
 int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable, float MinElev) {
 
