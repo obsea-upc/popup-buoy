@@ -16,3 +16,11 @@ void gpsSave(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMon
 
 // Append one CSV row (lat,long,Y,M,D,h,m,s;) to the GPS track file on the SD card.
 bool saveGPStoSD(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond);
+
+// --- GPS fix data (defined in gps.cpp; shared with the sketch and the satellite modules) ---
+extern double gpsLat, gpsLong;
+extern uint8_t gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond;
+extern uint16_t gpsYear;
+extern bool gpsFix;
+extern uint32_t epochTime;
+extern int maxGPSTimeout;  // GPS acquisition timeout (ms), loaded from conf.txt

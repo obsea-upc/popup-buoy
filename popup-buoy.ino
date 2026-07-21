@@ -85,13 +85,7 @@
   float MinElev;
   float Bat_critlevel;
 
-//------ Define GPS Acquiring Parameters -------------------------------------------------------------------------------
-  double gpsLat, gpsLong;
-  uint8_t gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond;
-  uint16_t gpsYear;
-  bool gpsFix;
-  uint32_t epochTime;
-  int maxGPSTimeout;
+//------ GPS Acquiring Parameters now owned by gps.cpp (declared in gps.h) ---------------------------------------------
 
 //------ Define Variables for the Kineis communication -----------------------------------------------------------------
   int NbrMsgToSend;

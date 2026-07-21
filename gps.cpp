@@ -7,13 +7,20 @@
 #include <RTClib.h>
 #include <SD.h>
 
-// Globals owned by the main sketch (popup-buoy.ino).
+// Objects owned by the main sketch (popup-buoy.ino).
 extern TinyGPSPlus gps;
 extern SoftwareSerial gpsSerial;
-extern int maxGPSTimeout;
 extern RTC_DS3231 rtcExt;
 extern File GpsTrackFile;
 extern const char *GPSfilename;
+
+// GPS fix data owned by this module (declared extern in gps.h).
+double gpsLat, gpsLong;
+uint8_t gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond;
+uint16_t gpsYear;
+bool gpsFix;
+uint32_t epochTime;
+int maxGPSTimeout;  // GPS acquisition timeout (ms), loaded from conf.txt
 
 void configGPS() {
   // Comando UBX CFG-NAV5 para configurar 2D fix
