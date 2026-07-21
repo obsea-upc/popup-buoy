@@ -8,6 +8,9 @@
 #elif defined WORK_home
   #define WIFI_SSID "Chu_Net"
   #define WIFI_PASS "RyC_84_Wosim"
+#elif defined WORK_vela
+  #define WIFI_SSID "MOVISTAR_7160"
+  #define WIFI_PASS "uDGcMYtjywMG74KnjMKP" 
 #elif defined WORK_office2
   #define WIFI_SSID "SARTI_Wifi_v2" //"iPhone de Matias" //
   #define WIFI_PASS "12345612345612345612345612"//"sartisarti."//

@@ -19,6 +19,7 @@
 //#define WORK_enoc
 #define WORK_office2 
 #define WORK_rasp
+//#define WORK_vela
 //#define WORK_intothedeep
 
 // ----- Definitions for push button
