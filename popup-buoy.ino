@@ -34,6 +34,7 @@
 #include "ftp_download.h"
 #include "satellite_spp.h"
 #include "satellite_tx.h"
+#include "config.h"
 #include "Arduino.h"
 #include "SD.h"
 #include <RTClib.h>
@@ -142,8 +143,7 @@
   File datamsgSD;
   const char *SD_progress_filename = "/progressFile.txt";  // File containing the progress of sending the file, to be used to get where we are in the file with data
   File progressDataFileSD;
-  const char *SD_config_filename = "/conf.txt";  // File with all the config, only thing that will be given to the SD card, so that we won't have to change the code
-  File ConfigFileSD;
+  // SD config file (SD_config_filename, ConfigFileSD) now owned by config.cpp
   const char *AOPfilename = "/AOP.txt";  // file with all the GPS data
   File AOPFile;
 
@@ -934,134 +934,6 @@ void ChangeSecondsInHoursAndMinutes(int *seconds, int *minutes, int *hours) {
   *seconds = (*seconds % 3600) % 60;  // Conversion en secondes sans les heures et les minutes
 }
 // KIM-TX send part (SendGPSMessage, SendDataMessage, readSuccessFile, splitLineProgressFile, splitLineDataFile) now in satellite_tx.h + satellite_tx.cpp
-void splitLineSuccessFile(const String &line, char *variableName, int &data) {
-  int separatorIndex = line.indexOf('=');  // The line will be cut by the ":" caracter. To change the file , only change here the caracter.
-
-  if (separatorIndex != -1) {
-    String VariableNameStr = line.substring(0, separatorIndex);  // This part is to get the name of the variable
-    strcpy(variableName, VariableNameStr.c_str());
-
-    String dataStr = line.substring(separatorIndex + 1);  // This part is to get the data
-    data = dataStr.toInt();
-  }
-}
-// KIM-TX data-file part (GetLineDataFile, SendFileKim, SaveInProgressFile, countLinesInDataFile) now in satellite_tx.h + satellite_tx.cpp
-void getInfoFromConfFile() {
-
-  // This function is used to get every variable we need so that we won't have to change the code
-
-  ConfigFileSD = SD.open(SD_config_filename, FILE_READ);  // Opening the file ConfFile
-  if (!ConfigFileSD) {                                    // Cheking if the file is open
-    SerialPrintDebugln(String(SD_config_filename) + " couldn't be opened");
-  } else {
-    SerialPrintDebugln(String(SD_config_filename) + " has been opened");
-
-    while (ConfigFileSD.available()) {  // Looping in the file as long as there are some data in it
-
-      String line = ConfigFileSD.readStringUntil('\n');
-      char NameOfVariable[256];
-      int DataFromVariable;
-
-      splitLineSuccessFile(line, NameOfVariable, DataFromVariable);
-
-      String VariableNameStr = String(NameOfVariable);
-      //SerialPrintDebugln(VariableNameStr);
-
-      if (VariableNameStr == "NumberOfSendingEachLineFromData") {
-        MaxNbrMsgSendingDataFile = DataFromVariable;
-        SerialPrintDebugln("Number of times transmitting each data line: " + String(DataFromVariable));
-      }
-
-      if (VariableNameStr == "idBuoy") {
-        idBuoy = DataFromVariable;
-        writeLogFile("Id Buoy: " + String(DataFromVariable));
-      }
-
-      if (VariableNameStr == "MAX_GPS_TIMEOUT") {
-        maxGPSTimeout = DataFromVariable;
-        SerialPrintDebugln("Maximum Timeout of GPS: " + String(DataFromVariable) + " miliseconds");
-      }
-
-      if (VariableNameStr == "MAX_WIFI_TIMEOUT") {
-        maxWIFITimeout = DataFromVariable;
-        SerialPrintDebugln("Maximum Timeout of WIFI: " + String(DataFromVariable) + " miliseconds");
-      }
-
-      if (VariableNameStr == "TIME_TO_SLEEP_STATE1_h") {
-        sleeptime_s1_h = DataFromVariable;
-        SerialPrintDebugln("Time to Sleep state 1 (from config to deep sea): " + String(DataFromVariable) + " hours");
-      }
-
-      if (VariableNameStr == "TIME_TO_SLEEP_STATE1_m") {
-        sleeptime_s1_m = DataFromVariable;
-        SerialPrintDebugln("Time to Sleep state 1 (from config to deep sea): " + String(DataFromVariable) + " minutes");
-      }
-
-      if (VariableNameStr == "TIME_TO_SLEEP_ERROR_WIFI_m") {
-        sleepTimeWifiAttempt = DataFromVariable;
-        SerialPrintDebugln("Time to Sleep after WiFi attempt: " + String(DataFromVariable) + " minutes");
-      }
-
-      if (VariableNameStr == "TIME_TO_SLEEP_ERROR_GPS_s") {
-        sleeptime_errorGPS_s = DataFromVariable;
-        SerialPrintDebugln("Time to sleep when the GPS can't fix- 1st time: " + String(DataFromVariable) + " seconds");
-      }
-
-      if (VariableNameStr == "TIME_TO_SLEEP_ERROR_GPS_RECURRENT_s") {
-        sleeptime_errorGPS_recurrent_s = DataFromVariable;
-        SerialPrintDebugln("Time to sleep when the GPS can't fix for multiple times: " + String(DataFromVariable) + " seconds");
-      }
-
-      if (VariableNameStr == "MAX_SLEEP_TIME_s") {
-        max_sleep_time_s = DataFromVariable;
-        SerialPrintDebugln("Maximum surface sleep time in s at any condition (to ensure the recovery): " + String(DataFromVariable) + " seconds");
-      }
-
-      if (VariableNameStr == "TRANSMISSION_GPS_s") {
-        timetransm_GPS_s = DataFromVariable;
-        SerialPrintDebugln("Time for normal GPS transmission: " + String(DataFromVariable) + " seconds");
-      }
-
-      if (VariableNameStr == "TRANSMISSION_GPS_NOARG_s") {
-        timetransm_GPS_noArg_s = DataFromVariable;
-        SerialPrintDebugln("Time for GPS transmission, no ARGOS coverage: " + String(DataFromVariable) + " seconds");
-      }
-
-      if (VariableNameStr == "MAX_FRM_TIME_h") {
-        maxFRM = DataFromVariable;
-        SerialPrintDebugln("Max time at stage 6: " + String(DataFromVariable) + " hours");
-      }
-
-      if (VariableNameStr == "MinElev") {  // NUEVA VARIABLE FLOAT
-        MinElev = static_cast<float>(DataFromVariable);  // Conversión explícita
-        writeLogFile("Minimum Elevation: " + String(MinElev));
-      }
-
-      if (VariableNameStr == "PWR2") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
-        sprintf(PWR2, "%d", DataFromVariable);
-        writeLogFile("PWR2: " + String(PWR2));
-      }
-
-      if (VariableNameStr == "PWR3") {  // LEEMOS COMO ENTERO Y LO CONVERTIMOS A CHAR[]
-        sprintf(PWR3, "%d", DataFromVariable);
-        writeLogFile("PWR3: " + String(PWR3));
-      }
-
-
-      if (VariableNameStr == "FILE_BLINK_LED") {
-        fileBlinkLed = DataFromVariable;
-        SerialPrintDebugln("Debug FTP file download with LEDs: " + String(DataFromVariable));
-      }
-
-      if (VariableNameStr == "BAT_CRIT_LEVEL") {  // NUEVA VARIABLE FLOAT
-        Bat_critlevel = static_cast<float>(DataFromVariable)/1000;  // Conversión explícita
-        writeLogFile("Battery critical lebel: " + String(Bat_critlevel));
-      }
-
-      // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition
-    }
-  }
-  ConfigFileSD.close();
-}
+// Config module (getInfoFromConfFile + its SD /conf.txt parsing) now in config.h + config.cpp
 //------- FUNCTIONS FOR AOP TABLE GENERATION-----------------------------------------------------------------------
 // SPP AOP-table helpers (parseLine, readSatelliteData, printAopTable) now in satellite_spp.h + satellite_spp.cpp
