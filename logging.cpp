@@ -34,7 +34,7 @@ void SerialPrintDebugln(String message) {
 }
 
 bool writeLogFile(String message) {
-  message = "State " + String(currentState) + " - " + message;
+  message = "State " + String(stateName(currentState)) + " - " + message;
 
   SerialPrintDebug("Writing in LogFile.txt ---");
   SerialPrintDebugln(message);

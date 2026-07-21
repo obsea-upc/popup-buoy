@@ -17,6 +17,20 @@ enum PopUpState {
   ST_FRM     = 6   // surface: Fast Recovery Mode
 };
 
+// Human-readable state name for logs/serial (inline so it can live in this header).
+inline const char* stateName(int s) {
+  switch (s) {
+    case ST_CONFIG:  return "CONFIG";
+    case ST_DEPLOY:  return "DEPLOY";
+    case ST_SEABED:  return "SEABED";
+    case ST_RELEASE: return "RELEASE";
+    case ST_DM:      return "DM";
+    case ST_LOWPWR:  return "LOWPWR";
+    case ST_FRM:     return "FRM";
+    default:         return "?";
+  }
+}
+
 ////----- TEST PARAMETERS
 
 #define INITIAL_STATE ST_CONFIG

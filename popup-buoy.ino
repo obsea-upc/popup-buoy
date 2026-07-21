@@ -167,7 +167,7 @@ void setup() {
     initializeEEPROM();
     currentState = eepromReadState();
     SerialPrintDebug("CurrentState of POP_UP_BUOY: ");
-    SerialPrintDebugln(currentState);
+    SerialPrintDebugln(stateName(currentState));
 
   //------- PB DEFINITION ----------------------------------------------------------------------------------
     pinMode(PB_1, INPUT_PULLUP);
@@ -252,7 +252,7 @@ void setup() {
           WiFi.begin(WIFI_SSID2, WIFI_PASS2);
           break;
         case 3:
-          SerialPrintDebugln("ERROR -- button 3 pushed. Changing to state 1");
+          SerialPrintDebugln("ERROR -- button 3 pushed. Changing to DEPLOY");
           changeStateTo(ST_DEPLOY);//change to state 1
           break;
         default:
@@ -459,7 +459,7 @@ void loop() {
       SetCoverageStateTo(1);
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();
-      SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state " + String(currentState) + " with no coverage.");
+      SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state " + String(stateName(currentState)) + " with no coverage.");
       delay(10000);
 
       break;
@@ -480,8 +480,8 @@ void loop() {
       digitalWrite(LED_R, HIGH);
       writeLogFile("First Boot.");
       SerialPrintDebug("Configuration finished for POP_UP_BUOY at state: ");
-      SerialPrintDebugln(currentState);
-      SerialPrintDebugln("Moving to state 1.");
+      SerialPrintDebugln(stateName(currentState));
+      SerialPrintDebugln("Moving to DEPLOY.");
       changeStateTo(ST_DEPLOY);//change to state 1
       break;
     case ST_DEPLOY:  //DEPLOYMENT -- Deployment sleep
@@ -494,11 +494,11 @@ void loop() {
       }
       digitalWrite(LED_R, HIGH);
       changeStateTo(ST_SEABED);//change to state 1
-      writeLogFile("PB pressed, changing state to 2");
+      writeLogFile("PB pressed, changing state to SEABED");
       #ifdef SERIAL_DEBUG
         delay(1000);  //necessary to discharge the intrinsec capacitor of button 1
       #endif
-      writeLogFile("Finished deployment phase, changing state to 2");
+      writeLogFile("Finished deployment phase, changing state to SEABED");
       SleepModeSequence(sleeptime_s1_h, sleeptime_s1_m, 0,1); //Enter Sleep Mode
       delay(10);
       break;
@@ -527,7 +527,7 @@ void loop() {
             SleepModeSequence(0, 5, 0, 0);
             break;
           }else{
-            writeLogFile("No satellites found. Continue state 2.");
+            writeLogFile("No satellites found. Continue SEABED.");
               for (int i = 0; i <= 4; i++) {
                 digitalWrite(LED_R, HIGH);
                 delay(100);
@@ -599,15 +599,15 @@ void loop() {
           switch (releaseMode) {
             case FRM:
               changeStateTo(ST_FRM); //Change state to 6 and save state in eeprom
-              writeLogFile("Finished release phase, changing state to 6 as Fast Recovery Mode.");
+              writeLogFile("Finished release phase, changing state to FRM as Fast Recovery Mode.");
               break;
             case DM:
               changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
-              writeLogFile("Finished release phase, changing state to 4 as Drifting Mode");
+              writeLogFile("Finished release phase, changing state to DM as Drifting Mode");
               break;
             default:
               changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
-              writeLogFile("Finished release phase. ERROR reading the release mode. Guessing Drifting Mode (state to 4)");
+              writeLogFile("Finished release phase. ERROR reading the release mode. Guessing Drifting Mode (state to DM)");
               break;
           }
           SetCoverageStateTo(0); //first release no transmission of data cause we havent fix the GPS
@@ -623,14 +623,14 @@ void loop() {
             }
             sleepTimeState2_h = sleeptime_h;  //here we set the cycle time
             IncrementCounterFailWIFI();
-            writeLogFile("Not achieved release phase for 3 WiFi attempts or early request, keeping state 2. Going to sleep for " + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
+            writeLogFile("Not achieved release phase for 3 WiFi attempts or early request, keeping SEABED. Going to sleep for" + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
             SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 1); //Enter Sleep Mode
             break;
           }else{
             sleepTimeState2_m = sleepTimeWifiAttempt;
             sleepTimeState2_h = 0;
             IncrementCounterFailWIFI();
-            writeLogFile("Not achieved release phase for " + String(Counter_FailWIFI) + " WiFi attempts, keeping state 2. Going to sleep for " + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
+            writeLogFile("Not achieved release phase for " + String(Counter_FailWIFI) + " WiFi attempts, keeping SEABED. Going to sleep for" + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
             SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 0); //Enter Sleep Mode
             break;
           }
@@ -719,7 +719,7 @@ void loop() {
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else{  //
-          writeLogFile("BATTERY ALERT! Changing to state 5 and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
+          writeLogFile("BATTERY ALERT! Changing to LOWPWR and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           changeStateTo(ST_LOWPWR);
           writeLogFile("Entering Sleep mode");
@@ -767,7 +767,7 @@ void loop() {
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---  NOT USED IN LOWBAT_MODE
       // --- CHANGING THE BUOY STATE AND SLEEP ---
         if ( Vin_ADC>Bat_critlevel){  //Battery still ok
-          writeLogFile("Battery OK again. Changing to state 4 and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
+          writeLogFile("Battery OK again. Changing to DM and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           changeStateTo(ST_DM);
           writeLogFile("Entering Sleep mode");
@@ -811,21 +811,21 @@ void loop() {
 
       // --- MOVING TO NEXT STATUS ---
         if((millis() - initTime > maxFRM*3600*1000)) {
-          writeLogFile("Fast Recovery Mode timeout! Not recovered for " + String(maxFRM) + " hours, so sleeping for " + String(secondsBeforeNextStatellite) + "seconds and moving to Drifting Mode at state 4.");
+          writeLogFile("Fast Recovery Mode timeout! Not recovered for " + String(maxFRM) + " hours, so sleeping for " + String(secondsBeforeNextStatellite) + "seconds and moving to Drifting Mode at DM.");
           changeStateTo(ST_DM);
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else if(Vin_ADC < Bat_critlevel){
-          writeLogFile("BATTERY ALERT! Sleeping for " + String(secondsBeforeNextStatellite) + " seconds and changing to state 5.");
+          writeLogFile("BATTERY ALERT! Sleeping for " + String(secondsBeforeNextStatellite) + " seconds and changing to LOWPWR.");
           changeStateTo(ST_LOWPWR);
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else{
-          writeLogFile("ERROR! Sleeping for 5 minutes and moving to state 4.");
+          writeLogFile("ERROR! Sleeping for 5 minutes and moving to DM.");
           changeStateTo(ST_DM);
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(0, 5, 0, 0);
