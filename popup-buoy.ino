@@ -34,6 +34,7 @@ FUTURE IMPROVEMENTS
 
 #include "conf.h"
 #include "secrets.h"
+#include "logging.h"
 #include "Arduino.h"
 #include "SD.h"
 #include <RTClib.h>
@@ -917,61 +918,7 @@ void pushButtonRefresh(int &pushedButton) {
     delay(50);
   }
 }
-bool writeLogFile(String message) {
-
-  struct tm timeinfo;
-
-  message = "State " + String(currentState) + " - " + message;
-
-  SerialPrintDebug("Writing in LogFile.txt ---");
-  SerialPrintDebugln(message);
-
-  //Open file and create if it doeesn't exist
-  LogFile = SD.open(Log_filename, FILE_APPEND);  //filename is the file name to be created and FILE_WRITE is a command to create file.
-  if (!LogFile) {
-    LogFile.close();  //Closing the file
-    return false;
-  }
-
-  DateTime timeRtcExt = rtcExt.now();  //To have the UTC time and not the local one
-  if (!LogFile.print(String(timeRtcExt.timestamp(DateTime::TIMESTAMP_FULL)))) {
-    return false;
-  }
-
-  if (!LogFile.print("----")) {
-    return false;
-  }
-
-
-  if (!LogFile.println(message)) {
-    return false;
-  }
-
-  //close file
-  LogFile.close();  //Closing the file
-
-  return true;
-}
-void SerialPrintDebug(int message){
-  #ifdef SERIAL_DEBUG
-    Serial.print(message);
-  #endif
-}
-void SerialPrintDebugln(int message){
-  #ifdef SERIAL_DEBUG
-    Serial.println(message);
-  #endif
-}
-void SerialPrintDebug(String message){
-  #ifdef SERIAL_DEBUG
-    Serial.print(message);
-  #endif
-}
-void SerialPrintDebugln(String message){
-  #ifdef SERIAL_DEBUG
-    Serial.println(message);
-  #endif
-}
+// Serial debug + SD logging helpers now live in logging.h / logging.cpp
 bool deleteFile(const char *filename) {
 
   if (SD.exists(filename)) {
