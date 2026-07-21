@@ -1,6 +1,7 @@
 #include "gps.h"
 #include "conf.h"
 #include "logging.h"
+#include "power_sleep.h"   // for ConnectPeripherals
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 #include <RTClib.h>
@@ -13,9 +14,6 @@ extern int maxGPSTimeout;
 extern RTC_DS3231 rtcExt;
 extern File GpsTrackFile;
 extern const char *GPSfilename;
-
-// Power/relay control, defined in the main sketch (future "power" module).
-void ConnectPeripherals(bool activateRelay, int PRelay);
 
 void configGPS() {
   // Comando UBX CFG-NAV5 para configurar 2D fix
