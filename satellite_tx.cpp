@@ -7,26 +7,28 @@
 #include <FastCRC.h>
 #include <SD.h>
 
-// Globals owned by the main sketch (popup-buoy.ino).
+// Objects/data owned by other modules.
 extern KIM KIM;
-extern char PWR2[10];
-extern char PWR3[10];
-extern char AFMT[2];   // "1" -> 2 bytes; sized so sizeof(AFMT) works here
-extern const int delayKIM;
-extern char kineisMessage[27];
-extern char kineisdataMessage[47];
-extern char *new_line;
 extern int currentState;
-
 extern double gpsLat, gpsLong;
 extern uint32_t epochTime;
 extern char ADCreadHex[3];
 
-extern int NbrMsgToSend;
-extern int RowProgress;
-extern int nbrSendingProgress;
-extern int MaxRowDataFile;
-extern int MaxNbrMsgSendingDataFile;
+// KIM transmission parameters owned by this module (PWR2/PWR3/AFMT/delayKIM declared extern in satellite_tx.h).
+char PWR2[10] = "1000";  // TX power (raised from 500 to 1000)
+char PWR3[10] = "100";
+char AFMT[] = "1";       // enable standard KIM messages
+extern const int delayKIM = 10;  // delay between KIM parameter sets
+char kineisMessage[27];      // GPS/position message buffer (internal)
+char kineisdataMessage[47];  // seabed-data message buffer (internal)
+char *new_line;              // current data line being sent (internal)
+
+// Data-transmission progress owned by this module (RowProgress/MaxRowDataFile/MaxNbrMsgSendingDataFile in satellite_tx.h).
+int NbrMsgToSend;            // (internal)
+int RowProgress;
+int nbrSendingProgress;      // (internal)
+int MaxRowDataFile;
+int MaxNbrMsgSendingDataFile;
 
 extern File progressDataFileSD;   // shared with the sketch (createProgressFile)
 

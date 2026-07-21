@@ -6,25 +6,27 @@
 static const char *SD_config_filename = "/conf.txt";  // key=value config, so parameters can change without recompiling
 static File ConfigFileSD;
 
-// Runtime globals owned by the main sketch (popup-buoy.ino), filled from /conf.txt.
+// Runtime globals filled from /conf.txt but owned by other modules.
 extern int MaxNbrMsgSendingDataFile;
 extern int idBuoy;
 extern int maxGPSTimeout;
-extern int maxWIFITimeout;
-extern int sleeptime_s1_h;
-extern int sleeptime_s1_m;
-extern int sleepTimeWifiAttempt;
-extern int sleeptime_errorGPS_s;
-extern int sleeptime_errorGPS_recurrent_s;
-extern int max_sleep_time_s;
-extern int timetransm_GPS_s;
-extern int timetransm_GPS_noArg_s;
-extern unsigned long maxFRM;
 extern float MinElev;
 extern char PWR2[10];
 extern char PWR3[10];
 extern int fileBlinkLed;
 extern float Bat_critlevel;
+
+// Timing / sleep configuration owned by this module (declared extern in config.h).
+int maxWIFITimeout;
+int sleeptime_s1_h;
+int sleeptime_s1_m;
+int sleepTimeWifiAttempt;
+int sleeptime_errorGPS_s;
+int sleeptime_errorGPS_recurrent_s;
+int max_sleep_time_s;
+int timetransm_GPS_s;
+int timetransm_GPS_noArg_s;
+unsigned long maxFRM;
 
 // Split a "Name=value" config line into its name and integer value.
 static void splitLineSuccessFile(const String &line, char *variableName, int &data) {

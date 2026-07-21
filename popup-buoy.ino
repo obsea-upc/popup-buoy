@@ -60,16 +60,9 @@
   HardwareSerial kimSerial(2);  // hard coded no library
   KIM KIM(&kimSerial);          //with library
 
-//------ Define Kineis Transmission Parameters ------------------------------------------------------------------------
-  char PWR2[10] = "1000";  // Rise of power from 500 to 1000 -- These parameters are saved in RAM, not defined anymore
-  char PWR3[10] = "100";
-  char AFMT[] ="1";     // Enable standard kim messages -- These parameters are saved in RAM, not defined anymore
-  extern const int delayKIM = 10;  //between parmeters set (extern: shared with satellite_tx.cpp)
-  char kineisMessage[27];  // declared globally to avoid errors
-  char kineisdataMessage[47];
+//------ Kineis TX params (PWR2/PWR3/AFMT/delayKIM, kineisMessage/kineisdataMessage, new_line) now owned by satellite_tx.cpp
 
 //------ Define Kineis SPP Parameters ---------------------------------------------------------------------------------
-  char *new_line;  //Variable used to send the data from the SD file
   int secondsBeforeNextStatellite;
   int hoursBeforeNextStatellite;
   int minutesBeforeNextStatellite;
@@ -87,12 +80,7 @@
 
 //------ GPS Acquiring Parameters now owned by gps.cpp (declared in gps.h) ---------------------------------------------
 
-//------ Define Variables for the Kineis communication -----------------------------------------------------------------
-  int NbrMsgToSend;
-  int RowProgress;
-  int nbrSendingProgress;
-  int MaxRowDataFile;
-  int MaxNbrMsgSendingDataFile;
+//------ Kineis data-progress (NbrMsgToSend, RowProgress, nbrSendingProgress, MaxRowDataFile, MaxNbrMsgSendingDataFile) now owned by satellite_tx.cpp
 
 //------ Basic definitions ---------------------------------------------------------------------------------------------
   int currentState = INITIAL_STATE;  // current state of pop-up-buoy (0 submerged, 1 surfacing,...)
@@ -103,17 +91,7 @@
   ReleaseMode releaseMode;
   int sleeptime_h;
   int sleeptime_m;
-//------ Timming definitions ---------------------------------------------------------------------------------------------
-  int sleeptime_s1_h; //Time to Sleep state 1 (from config to deep sea) in hours
-  int sleeptime_s1_m; //Time to Sleep state 1 (from config to deep sea) in min
-  int sleeptime_errorGPS_s; //Time to sleep when the GPS can't fix- 1st time (s)
-  int sleeptime_errorGPS_recurrent_s; //Time to sleep when the GPS can't fix for multiple times (s)
-  int max_sleep_time_s; //Maximum surface sleep time in s at any condition (to ensure the recovery)
-  int timetransm_GPS_s; //Time for normal GPS transmission, minimum --> Minimum duration --> 300 s =10 messages .. now is 2 messages
-  int timetransm_GPS_noArg_s; //Time for GPS transmission, no ARGOS coverage (default 90 -> 3 messages)
-  unsigned long maxFRM; //Max time in stage 6
-  int maxWIFITimeout;
-  int sleepTimeWifiAttempt;
+//------ Timing config (sleeptime_s1_*, sleeptime_errorGPS_*, max_sleep_time_s, timetransm_GPS_*, maxFRM, maxWIFITimeout, sleepTimeWifiAttempt) now owned by config.cpp
   // year_lander..second_lander now owned by wifi_http.cpp
   int syncTime;
   int fileBlinkLed = 0;
