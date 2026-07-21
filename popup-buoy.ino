@@ -35,6 +35,7 @@ FUTURE IMPROVEMENTS
 #include "conf.h"
 #include "secrets.h"
 #include "logging.h"
+#include "eeprom_store.h"
 #include "Arduino.h"
 #include "SD.h"
 #include <RTClib.h>
@@ -181,7 +182,7 @@ void setup() {
   //------- EEPROM DEFINITION ------------------------------------------------------------------------------
     EEPROM.begin(EEPROM_SIZE);
     initializeEEPROM();
-    currentState = EEPROM.read(0);
+    currentState = eepromReadState();
     SerialPrintDebug("CurrentState of POP_UP_BUOY: ");
     SerialPrintDebugln(currentState);
 
@@ -377,12 +378,10 @@ void setup() {
       if (!sendHttpGetRequest(idBuoy,GETSYNCTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
         writeLogFile("Adjustment of SYNCTIME failed for wrong HTTP request! Setting 9 as default synctime" );
         syncTime = 9;
-        EEPROM.write(6, syncTime);
-        EEPROM.commit();
+        eepromSaveSyncTime(syncTime);
       }else{
         // Ajustar el SYNCTIME con los valores obtenidos
-        EEPROM.write(6, syncTime);
-        EEPROM.commit();
+        eepromSaveSyncTime(syncTime);
         delay(50);
         writeLogFile("Adjustment of SYNCTIME of buoy " +String(idBuoy)+ " done." );
       }
@@ -530,7 +529,7 @@ void loop() {
       int sleepTimeState2_h;
       int sleepTimeState2_m;
       // --- TRYING TO FIND GPS  ---
-        Counter_FailWIFI=EEPROM.read(5);
+        Counter_FailWIFI = eepromReadCounterWIFIFail();
         if (Counter_FailWIFI==0){  //We just try the gps at the first wifi attempt
           writeLogFile("Trying to find satellites.");
           if (gpsAcquireSatellites()){
@@ -633,7 +632,7 @@ void loop() {
           delay(10);
           break;
         }else {
-          Counter_FailWIFI=EEPROM.read(5);
+          Counter_FailWIFI = eepromReadCounterWIFIFail();
           if(Counter_FailWIFI>=2){
             sleepTimeState2_m = 0;
             if (sleeptime_h == 0){
@@ -666,13 +665,13 @@ void loop() {
         configureKIM();
         writeLogFile("KIM power changed to 1000");
       // --- READ EEPROM INFO ABOUT  AND NUMBER OF FILES IN DATAFILE AND THE ACTUAL RowProgress  ---
-        Decimal_CoverageDuration = (EEPROM.read(2) << 8) | EEPROM.read(3);  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
+        Decimal_CoverageDuration = eepromReadCoverageDuration();  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
         SerialPrintDebugln(" Time of coverage from the comming satellite : " + String(Decimal_CoverageDuration) + String(" sec"));
         countLinesInDataFile(); // To get how many lines there are in this file
         readSuccessFile(); // To get the actual RowProgress
 
       // --- DEFINING IF THERE IS ARGOS COVERAGE AND HOW THE CODE MUST ANSWER ---
-        CoverageState = EEPROM.read(1);  // Read if the buoy is in a time where satellites are passing
+        CoverageState = eepromReadCoverageState();  // Read if the buoy is in a time where satellites are passing
 
         if (CoverageState == 0) {        // no coverage so only sending the GPS data and going back to sleep
           timeSending = timetransm_GPS_noArg_s;              // sec of sending --> if 90 => 3 kineis MSG
@@ -756,11 +755,11 @@ void loop() {
         configureKIM();
         writeLogFile("KIM power changed to 1000");
       // --- READ EEPROM INFO ABOUT DURATION ---
-        Decimal_CoverageDuration = (EEPROM.read(2) << 8) | EEPROM.read(3);  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
+        Decimal_CoverageDuration = eepromReadCoverageDuration();  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
         SerialPrintDebugln(" Time of coverage from the comming satellite : " + String(Decimal_CoverageDuration) + String(" sec"));
 
       // --- DEFINING IF THERE IS ARGOS COVERAGE AND HOW THE CODE MUST ANSWER ---
-        CoverageState = EEPROM.read(1);  // Read if the buoy is in a time where satellites are passing -- IN LOWBAT_MODE always 1 - no recovery messages
+        CoverageState = eepromReadCoverageState();  // Read if the buoy is in a time where satellites are passing -- IN LOWBAT_MODE always 1 - no recovery messages
 
         if (CoverageState == 0) {        // no ARGOS coverage  -- if no GPS fix in 5 this can happen
           timeSending = timetransm_GPS_noArg_s;              // All time dedicated to transmitt GPS
@@ -945,21 +944,7 @@ void createProgressFile() {
     SerialPrintDebugln("Error creating progressfile.");
   }
 }
-void eepromSaveState(int newstate) {
-  EEPROM.write(0, newstate);
-  EEPROM.commit();
-  delay(10);
-}
-void eepromInitState() {
-  EEPROM.write(0, 0);
-  EEPROM.commit();
-  delay(10);
-  currentState = EEPROM.read(0);
-}
-void changeStateTo(int newState) {
-  currentState = newState;
-  eepromSaveState(currentState);
-}
+// EEPROM state-store helpers now live in eeprom_store.h / eeprom_store.cpp
 void configureKIM(){
   SerialPrintDebugln("KIM Initial Setup ---->");
   while (!KIM.check()) {
@@ -1080,7 +1065,7 @@ void goToSleepRTC_abs(int8_t sleepingHours) {
 
   DateTime now = rtcExt.now();
   DateTime alarmTime;
-  syncTime = EEPROM.read(6);
+  syncTime = eepromReadSyncTime();
 
   if (sleepingHours == 24) {
     // Configurar la alarma para las 9:00 AM de hoy si aún no ha pasado; si no, configurar para las 9:00 AM del día siguiente
@@ -1788,7 +1773,7 @@ void adcAcquireData(char *ADCreadHex) {
 bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
-    currentState = EEPROM.read(0);
+    currentState = eepromReadState();
     if (KIM.send_data(kineisMessage, sizeof(kineisMessage) - 1) == OK_KIM) {
       delay(INTERVAL_SEND_MS);
       writeLogFile(" Kim MSG_OK");
@@ -1912,7 +1897,7 @@ void runSatellitePassPrediction(bool lowPower) {
     }
   } else {  // If GPS is not fixed
 
-    Counter_FailGPS = EEPROM.read(4); // How many times in a row the GPS has not been fixed?
+    Counter_FailGPS = eepromReadCounterGPSFail(); // How many times in a row the GPS has not been fixed?
     writeLogFile("Failed to fix GPS, no data was stored to SD");
     SetCoverageDurationTo_0();  // if we don't get the position it's better to keep in memory that coverage is null so that if we get GPS in the next state 4 we do not send messages if we don't if there is a satellite
     SetCoverageStateTo(0);
@@ -2055,7 +2040,7 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   // -------To remember the time duration in EEPROM---------)
   Decimal_CoverageDuration = int(earliestPass.duration);
   eepromSaveTimeCoverage(Decimal_CoverageDuration);
-  Decimal_CoverageDuration = (EEPROM.read(2) << 8) | EEPROM.read(3);
+  Decimal_CoverageDuration = eepromReadCoverageDuration();
   SerialPrintDebugln(" Time of coverage next satellite : " + String(Decimal_CoverageDuration));
 
   messageLogFile = "Next Satelitte : Time before next satellite :" + String(diff) + " sec and coverage : " + String(Decimal_CoverageDuration) + String(" sec");
@@ -2063,59 +2048,7 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
 
   return diff;
 }
-void initializeEEPROM() {
-    int storedValue = EEPROM.read(0);
-
-    if (storedValue == 0xFF) { // Si la EEPROM no ha sido inicializada
-        writeLogFile("EEPROM no ini., saving default value.");
-        EEPROM.write(0, 0);
-        EEPROM.commit();
-        storedValue = 6;
-    }
-
-    currentState = storedValue;
-}
-void eepromSaveTimeCoverage(int timeCoverage) {
-  EEPROM.write(2, (timeCoverage >> 8) & 0xFF);
-  EEPROM.write(3, timeCoverage & 0xFF);
-  EEPROM.commit();
-  delay(50);
-}
-void SetCoverageDurationTo_0() {
-  Decimal_CoverageDuration = 0;
-  eepromSaveTimeCoverage(Decimal_CoverageDuration);
-}
-void SetCoverageStateTo(int NewCoverageState) {
-  EEPROM.write(1, NewCoverageState);
-  EEPROM.commit();
-  delay(50);
-}
-void eepromSaveCounterGPSFail(int counter) {
-  EEPROM.write(4, counter);
-  EEPROM.commit();
-  delay(50);
-}
-void SetCounterFailGPSTo_0() {
-  Counter_FailGPS = 0;
-  eepromSaveCounterGPSFail(Counter_FailGPS);
-}
-void eepromSaveCounterWIFIFail(int counter) {
-  EEPROM.write(5, counter);
-  EEPROM.commit();
-  delay(50);
-}
-void SetCounterFailWIFITo_0() {
-  Counter_FailWIFI = 0;
-  eepromSaveCounterWIFIFail(Counter_FailWIFI);
-}
-void IncrementCounterFailWIFI(){
-  if(Counter_FailWIFI >= 2){ //Means needs to start from 0
-    Counter_FailWIFI = 0;
-  }else{
-    Counter_FailWIFI = Counter_FailWIFI + 1;
-  }
-  eepromSaveCounterWIFIFail(Counter_FailWIFI);
-}
+// EEPROM state-store helpers now live in eeprom_store.h / eeprom_store.cpp
 void ChangeSecondsInHoursAndMinutes(int *seconds, int *minutes, int *hours) {
   *hours = *seconds / 3600;           // Conversion en heures
   *minutes = (*seconds % 3600) / 60;  // Conversion en minutes
