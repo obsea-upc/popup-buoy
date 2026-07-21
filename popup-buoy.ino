@@ -39,6 +39,7 @@ FUTURE IMPROVEMENTS
 #include "gps.h"
 #include "power_sleep.h"
 #include "wifi_http.h"
+#include "adc.h"
 #include "Arduino.h"
 #include "SD.h"
 #include <RTClib.h>
@@ -160,7 +161,7 @@ FUTURE IMPROVEMENTS
 
 
 //------ Definitions ADC read  -----------------------------------------------------------------------------------------
-  const int ADC_resolution = 8; // Resolución del ADC en bits (8 bits)
+  // ADC resolution now lives in adc.cpp (ADC_RESOLUTION)
   char ADCreadHex[3]; // Buffer para almacenar el valor hexadecimal
   float Vin_ADC;  //Battery voltage
 
@@ -418,7 +419,7 @@ void setup() {
  //------- ADC SETUP ---------------------------------------------------------------------------------------
   if (currentState == 4 or currentState == 5 or currentState == 6) {
     SerialPrintDebugln("ADC Setup ---->");
-    analogReadResolution(ADC_resolution);
+    adcSetup();
   }
  //------- FINALISED SETUP --------------------------------------------------------------------------------
   SerialPrintDebugln("\n---------------------------SETUP COMPLETE--------------------------------\n");
@@ -974,51 +975,7 @@ void configureKIM(){
 // WiFi + HTTP module (connectToRaspWiFi, getWiFiFailureReason, sendHttpGetRequest, parseTimeResponse, parsePermissionResponse, parseSyncTimeResponse) now in wifi_http.h + wifi_http.cpp
 //------- FUNCTIONS FOR SURFACE SEQUENCE ------------------------------------------------------------------
 // GPS module (configGPS/gpsAcquireSatellites/gpsAcquireData/gpsSave/saveGPStoSD) now in gps.h + gps.cpp
-void adcAcquireData(char *ADCreadHex) {
-
-  float R1_ADC = 10; // Resistance R1 value in MΩ
-  float R2_ADC = 10; // Resistance R2 value in MΩ
-  float Vref_ADC = 3.3; // Tensión de referencia del ADC (3.3V)
-  float a_calADC = 1; //0.9637; // calibration as y=ax+b
-  float b_calADC = 0; //0.500;
-  float Vout_ADC;
-  int ADCread;
-  int sumaADCread = 0;
-
-  for (int i = 0; i < 100; ++i) {
-    int ADCread = analogRead(ADC_PIN);  // Realiza la lectura analógica
-    sumaADCread += ADCread;  // Suma la lectura actual a la suma total
-    delay(10);  // Espera antes de la próxima lectura
-  }
-
-  ADCread = sumaADCread/100; // Realizar la lectura analógica
-
-  // Calcular el voltaje antes del divisor de tensión basado en la lectura del ADC y la referencia de voltaje
-  Vout_ADC = (ADCread*Vref_ADC) /(pow(2, ADC_resolution) - 1);
-
-  // Calcular el valor en voltaje basado en la lectura del ADC y el divisor de tensión + calibración
-  Vin_ADC = Vout_ADC * ((R1_ADC + R2_ADC) / R2_ADC)*a_calADC+b_calADC;
-
-  // Convertir la lectura de 8 bits a hexadecimal (2 caracteres) y mostrarlo
-  sprintf(ADCreadHex, "%02X", ADCread); // Convertir a hexadecimal
-  delay(100);
-
-  // Mostrar la lectura del ADC en 8 bits
-  SerialPrintDebug("ADC read (8 bits): ");
-  SerialPrintDebugln(ADCread);
-  // Mostrar el valor de voltaje calculado después del divisor de tensión
-  SerialPrintDebug("Vout (in the ADC): ");
-  char buffer[10];
-  dtostrf(Vout_ADC, 6, 5, buffer);
-  SerialPrintDebug(buffer);
-  SerialPrintDebugln(" V");
-  // Mostrar el voltaje antes del divisor de tensión
-  SerialPrintDebug("Vin (up): ");
-  dtostrf(Vin_ADC, 6, 5, buffer);
-  SerialPrintDebug(buffer);
-  SerialPrintDebugln(" V");
-  writeLogFile("Vin (up): " + String(buffer) + " V");
-}
+// ADC/battery module (adcSetup, adcAcquireData) now in adc.h + adc.cpp
 bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
