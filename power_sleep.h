@@ -17,3 +17,6 @@ void goToSleepRTC_abs(int8_t sleepingHours);
 
 // Light-sleep for a number of seconds, keeping state (toggles peripherals unless in state 6).
 void goToSleep(int sleeping_time);
+
+// Change to targetState and deep-sleep for `seconds` seconds (used by the surface states).
+void sleepSecondsAndGoTo(int seconds, int targetState);

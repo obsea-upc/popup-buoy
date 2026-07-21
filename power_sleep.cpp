@@ -164,3 +164,20 @@ void lightSequenceSleep() {
     delay(100);
   }
 }
+
+// Convert a duration in seconds into hours + minutes + remaining seconds.
+static void ChangeSecondsInHoursAndMinutes(int *seconds, int *minutes, int *hours) {
+  *hours = *seconds / 3600;           // Conversion en heures
+  *minutes = (*seconds % 3600) / 60;  // Conversion en minutes
+  *seconds = (*seconds % 3600) % 60;  // Conversion en secondes sans les heures et les minutes
+}
+
+// Change to targetState and deep-sleep for the given number of seconds (converts to h/m/s).
+void sleepSecondsAndGoTo(int seconds, int targetState) {
+  int h = 0, m = 0, s = seconds;
+  ChangeSecondsInHoursAndMinutes(&s, &m, &h);
+  changeStateTo(targetState);
+  writeLogFile("Entering Sleep mode");
+  SleepModeSequence(h, m, s, 0);
+  delay(10);
+}

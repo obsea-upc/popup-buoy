@@ -64,8 +64,6 @@
 
 //------ Define Kineis SPP Parameters ---------------------------------------------------------------------------------
   int secondsBeforeNextStatellite;
-  int hoursBeforeNextStatellite;
-  int minutesBeforeNextStatellite;
   int Decimal_CoverageDuration;
   int CoverageState;  // Variable used to stock in EEPROM the fact that there will be or not coverage when the buoy wakes up
   int Counter_FailGPS;
@@ -385,6 +383,142 @@ void setup() {
 
 }
 //------- MAIN LOOP --------------------------------------------------------------------------------------
+// Seabed Routine (state ST_SEABED): try a GPS fix (accidental-release check), else connect to
+// the pop-up server, request release permission, FTP-download the data and command the release.
+void runSeabedRoutine() {
+  writeLogFile("Wakeup");
+  digitalWrite(LED_G, LOW);
+  digitalWrite(LED_Y, LOW);
+  digitalWrite(LED_R, LOW);
+  bool buoyReleased;
+  int sleepTimeState2_h;
+  int sleepTimeState2_m;
+  // --- TRYING TO FIND GPS  ---
+    Counter_FailWIFI = eepromReadCounterWIFIFail();
+    if (Counter_FailWIFI==0){  //We just try the gps at the first wifi attempt
+      writeLogFile("Trying to find satellites.");
+      if (gpsAcquireSatellites()){
+        writeLogFile("WARNING! Satellites found. Moving to case 4 - DM.");
+        for (int i = 0; i <= 4; i++) {
+          digitalWrite(LED_Y, HIGH);
+          delay(100);
+          digitalWrite(LED_Y, LOW);
+          delay(100);
+        }
+        changeStateTo(ST_DM);
+        SleepModeSequence(0, 5, 0, 0);
+        return;
+      }else{
+        writeLogFile("No satellites found. Continue SEABED.");
+          for (int i = 0; i <= 4; i++) {
+            digitalWrite(LED_R, HIGH);
+            delay(100);
+            digitalWrite(LED_R, LOW);
+            delay(100);
+          }
+      }
+    }
+  // --- DOWNLOADING DATA AND SENDING RELEASE COMMAND  ---
+    if (!connectToRaspWiFi()) {
+      buoyReleased = false;
+      writeLogFile("Release of buoy " +String(idBuoy)+ " failed for No-WiFi!");
+    }else {
+      digitalWrite(LED_R, HIGH);
+      if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " failed for wrong HTTP request!" );
+      }else{
+        // Ajustar el RTC con los valores obtenidos
+        DateTime newTime(year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander);
+        rtcExt.adjust(newTime);
+        writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " with the time Lander done." );
+      }
+      if (!sendHttpGetRequest(idBuoy,PERMISSION,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+        buoyReleased = false;
+        writeLogFile("Release of buoy " +String(idBuoy)+ " failed for wrong HTTP request!");
+      }else{
+        if (!releaseFlag){
+          buoyReleased = false;
+          Counter_FailWIFI = 3; //as if it has failed 3 times, sleep till next cycle
+          eepromSaveCounterWIFIFail(Counter_FailWIFI);
+          writeLogFile("The release request of the buoy " +String(idBuoy)+ " was negative.");
+        }else{
+          if (connectToFTP() < 0) {
+            buoyReleased = false;
+            writeLogFile("Connection to FTP failed!");
+          }else{
+            digitalWrite(LED_Y, HIGH);
+            if (downloadAllFilesFTP() < 0) {
+              buoyReleased = false;
+              writeLogFile("Download of FTP files from buoy " +String(idBuoy)+ " failed.");
+            }else{
+              digitalWrite(LED_G, HIGH);
+              writeLogFile("Files downloaded");
+              if (!sendHttpGetRequest(idBuoy,RELEASE,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
+                buoyReleased = false;
+                writeLogFile("Release request of buoy " + String(idBuoy) + " failed.");
+              }else{
+                unsigned long startTime = millis();
+                unsigned long actualTime = 0;
+                buoyReleased = true;
+                while (WiFi.status() == WL_CONNECTED) { //if we can't connect to the rasp, then all is ok and we can move to phase 4
+                  actualTime = millis();
+                  if (actualTime - startTime >= maxWIFITimeout) {
+                    buoyReleased = false; //if we can still connect to the rasp after timeout that means we are still here --> repeat
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+  // --- DEFINING SLEEP AND CHANGING STATE  ---
+    if (buoyReleased){
+      sleepTimeState2_m = 1;
+      writeLogFile("Release of buoy " + String(idBuoy)+ " success! Sleeping for " + String (sleepTimeState2_m) + " minutes to reach the surface." );
+      switch (releaseMode) {
+        case FRM:
+          changeStateTo(ST_FRM); //Change state to 6 and save state in eeprom
+          writeLogFile("Finished release phase, changing state to FRM as Fast Recovery Mode.");
+          break;
+        case DM:
+          changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
+          writeLogFile("Finished release phase, changing state to DM as Drifting Mode");
+          break;
+        default:
+          changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
+          writeLogFile("Finished release phase. ERROR reading the release mode. Guessing Drifting Mode (state to DM)");
+          break;
+      }
+      SetCoverageStateTo(0); //first release no transmission of data cause we havent fix the GPS
+      SleepModeSequence(0, sleepTimeState2_m, 0, 0); //Enter Sleep Mode
+      delay(10);
+      return;
+    }else {
+      Counter_FailWIFI = eepromReadCounterWIFIFail();
+      if(Counter_FailWIFI>=2){
+        sleepTimeState2_m = 0;
+        if (sleeptime_h == 0){
+          sleeptime_h =24; //in case no wiffi connect for 3 times (sleeptime_h no initialized)
+        }
+        sleepTimeState2_h = sleeptime_h;  //here we set the cycle time
+        IncrementCounterFailWIFI();
+        writeLogFile("Not achieved release phase for 3 WiFi attempts or early request, keeping SEABED. Going to sleep for" + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
+        SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 1); //Enter Sleep Mode
+        return;
+      }else{
+        sleepTimeState2_m = sleepTimeWifiAttempt;
+        sleepTimeState2_h = 0;
+        IncrementCounterFailWIFI();
+        writeLogFile("Not achieved release phase for " + String(Counter_FailWIFI) + " WiFi attempts, keeping SEABED. Going to sleep for" + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
+        SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 0); //Enter Sleep Mode
+        return;
+      }
+    }
+}
+
 void loop() {
 
   writeLogFile("-----------------//Rebooting\\\\--------------------- ");
@@ -467,137 +601,7 @@ void loop() {
       break;
 
     case ST_SEABED:  //DEEP WATER ROUTINE -- Pre-Launch, ask for permission and download (deep sea routines)
-      writeLogFile("Wakeup");
-      digitalWrite(LED_G, LOW);
-      digitalWrite(LED_Y, LOW);
-      digitalWrite(LED_R, LOW);
-      bool buoyReleased;
-      int sleepTimeState2_h;
-      int sleepTimeState2_m;
-      // --- TRYING TO FIND GPS  ---
-        Counter_FailWIFI = eepromReadCounterWIFIFail();
-        if (Counter_FailWIFI==0){  //We just try the gps at the first wifi attempt
-          writeLogFile("Trying to find satellites.");
-          if (gpsAcquireSatellites()){
-            writeLogFile("WARNING! Satellites found. Moving to case 4 - DM.");
-            for (int i = 0; i <= 4; i++) {
-              digitalWrite(LED_Y, HIGH);
-              delay(100);
-              digitalWrite(LED_Y, LOW);
-              delay(100);
-            }
-            changeStateTo(ST_DM);
-            SleepModeSequence(0, 5, 0, 0);
-            break;
-          }else{
-            writeLogFile("No satellites found. Continue SEABED.");
-              for (int i = 0; i <= 4; i++) {
-                digitalWrite(LED_R, HIGH);
-                delay(100);
-                digitalWrite(LED_R, LOW);
-                delay(100);
-              }
-          }
-        }
-      // --- DOWNLOADING DATA AND SENDING RELEASE COMMAND  ---
-        if (!connectToRaspWiFi()) {
-          buoyReleased = false;
-          writeLogFile("Release of buoy " +String(idBuoy)+ " failed for No-WiFi!");
-        }else {
-          digitalWrite(LED_R, HIGH);
-          if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
-            writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " failed for wrong HTTP request!" );
-          }else{
-            // Ajustar el RTC con los valores obtenidos
-            DateTime newTime(year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander);
-            rtcExt.adjust(newTime);
-            writeLogFile("Adjustment of RTC time of buoy " +String(idBuoy)+ " with the time Lander done." );
-          }
-          if (!sendHttpGetRequest(idBuoy,PERMISSION,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
-            buoyReleased = false;
-            writeLogFile("Release of buoy " +String(idBuoy)+ " failed for wrong HTTP request!");
-          }else{
-            if (!releaseFlag){
-              buoyReleased = false;
-              Counter_FailWIFI = 3; //as if it has failed 3 times, sleep till next cycle
-              eepromSaveCounterWIFIFail(Counter_FailWIFI);
-              writeLogFile("The release request of the buoy " +String(idBuoy)+ " was negative.");
-            }else{
-              if (connectToFTP() < 0) {
-                buoyReleased = false;
-                writeLogFile("Connection to FTP failed!");
-              }else{
-                digitalWrite(LED_Y, HIGH);
-                if (downloadAllFilesFTP() < 0) {
-                  buoyReleased = false;
-                  writeLogFile("Download of FTP files from buoy " +String(idBuoy)+ " failed.");
-                }else{
-                  digitalWrite(LED_G, HIGH);
-                  writeLogFile("Files downloaded");
-                  if (!sendHttpGetRequest(idBuoy,RELEASE,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
-                    buoyReleased = false;
-                    writeLogFile("Release request of buoy " + String(idBuoy) + " failed.");
-                  }else{
-                    unsigned long startTime = millis();
-                    unsigned long actualTime = 0;
-                    buoyReleased = true;
-                    while (WiFi.status() == WL_CONNECTED) { //if we can't connect to the rasp, then all is ok and we can move to phase 4
-                      actualTime = millis();
-                      if (actualTime - startTime >= maxWIFITimeout) {
-                        buoyReleased = false; //if we can still connect to the rasp after timeout that means we are still here --> repeat
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-      // --- DEFINING SLEEP AND CHANGING STATE  ---
-        if (buoyReleased){
-          sleepTimeState2_m = 1;
-          writeLogFile("Release of buoy " + String(idBuoy)+ " success! Sleeping for " + String (sleepTimeState2_m) + " minutes to reach the surface." );
-          switch (releaseMode) {
-            case FRM:
-              changeStateTo(ST_FRM); //Change state to 6 and save state in eeprom
-              writeLogFile("Finished release phase, changing state to FRM as Fast Recovery Mode.");
-              break;
-            case DM:
-              changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
-              writeLogFile("Finished release phase, changing state to DM as Drifting Mode");
-              break;
-            default:
-              changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
-              writeLogFile("Finished release phase. ERROR reading the release mode. Guessing Drifting Mode (state to DM)");
-              break;
-          }
-          SetCoverageStateTo(0); //first release no transmission of data cause we havent fix the GPS
-          SleepModeSequence(0, sleepTimeState2_m, 0, 0); //Enter Sleep Mode
-          delay(10);
-          break;
-        }else {
-          Counter_FailWIFI = eepromReadCounterWIFIFail();
-          if(Counter_FailWIFI>=2){
-            sleepTimeState2_m = 0;
-            if (sleeptime_h == 0){
-              sleeptime_h =24; //in case no wiffi connect for 3 times (sleeptime_h no initialized)
-            }
-            sleepTimeState2_h = sleeptime_h;  //here we set the cycle time
-            IncrementCounterFailWIFI();
-            writeLogFile("Not achieved release phase for 3 WiFi attempts or early request, keeping SEABED. Going to sleep for" + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
-            SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 1); //Enter Sleep Mode
-            break;
-          }else{
-            sleepTimeState2_m = sleepTimeWifiAttempt;
-            sleepTimeState2_h = 0;
-            IncrementCounterFailWIFI();
-            writeLogFile("Not achieved release phase for " + String(Counter_FailWIFI) + " WiFi attempts, keeping SEABED. Going to sleep for" + String(sleepTimeState2_h) + " hours and " + String(sleepTimeState2_m) + " minutes to repeat the release.");
-            SleepModeSequence(sleepTimeState2_h, sleepTimeState2_m, 0, 0); //Enter Sleep Mode
-            break;
-          }
-        }
+      runSeabedRoutine();
       break;
 
     // ST_RELEASE (3): unused -- release is handled inside ST_SEABED, so no case here.
@@ -676,18 +680,10 @@ void loop() {
       // --- CHANGING THE BUOY STATE AND SLEEP ---
         if ( Vin_ADC>Bat_critlevel){  //Battery still ok
           writeLogFile("Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
-          ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(ST_DM);
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-          delay(10);
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else{  //
           writeLogFile("BATTERY ALERT! Changing to LOWPWR and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
-          ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(ST_LOWPWR);
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-          delay(10);
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_LOWPWR);
         }
       break;
     case ST_LOWPWR:  //LOW-power
@@ -731,18 +727,10 @@ void loop() {
       // --- CHANGING THE BUOY STATE AND SLEEP ---
         if ( Vin_ADC>Bat_critlevel){  //Battery still ok
           writeLogFile("Battery OK again. Changing to DM and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
-          ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(ST_DM);
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-          delay(10);
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else{  //
           writeLogFile("BATTERY ALERT! Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
-          ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(ST_LOWPWR);
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-          delay(10);
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_LOWPWR);
         }
       break;
     case ST_FRM:  //Fast Recovery Mode
@@ -775,24 +763,13 @@ void loop() {
       // --- MOVING TO NEXT STATUS ---
         if((millis() - initTime > maxFRM*3600*1000)) {
           writeLogFile("Fast Recovery Mode timeout! Not recovered for " + String(maxFRM) + " hours, so sleeping for " + String(secondsBeforeNextStatellite) + "seconds and moving to Drifting Mode at DM.");
-          changeStateTo(ST_DM);
-          ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-          delay(10);
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else if(Vin_ADC < Bat_critlevel){
           writeLogFile("BATTERY ALERT! Sleeping for " + String(secondsBeforeNextStatellite) + " seconds and changing to LOWPWR.");
-          changeStateTo(ST_LOWPWR);
-          ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
-          delay(10);
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_LOWPWR);
         }else{
           writeLogFile("ERROR! Sleeping for 5 minutes and moving to DM.");
-          changeStateTo(ST_DM);
-          writeLogFile("Entering Sleep mode");
-          SleepModeSequence(0, 5, 0, 0);
-          delay(10);
+          sleepSecondsAndGoTo(300, ST_DM);
         }
       break;
     default:
@@ -891,11 +868,7 @@ void createProgressFile() {
 // KIM-TX config/message part (configureKIM, sendGPSviaKIM, maskGPS) now in satellite_tx.h + satellite_tx.cpp
 // SPP module (runSatellitePassPrediction, NextSatellite) now in satellite_spp.h + satellite_spp.cpp
 // EEPROM state-store helpers now live in eeprom_store.h / eeprom_store.cpp
-void ChangeSecondsInHoursAndMinutes(int *seconds, int *minutes, int *hours) {
-  *hours = *seconds / 3600;           // Conversion en heures
-  *minutes = (*seconds % 3600) / 60;  // Conversion en minutes
-  *seconds = (*seconds % 3600) % 60;  // Conversion en secondes sans les heures et les minutes
-}
+// ChangeSecondsInHoursAndMinutes + sleepSecondsAndGoTo now in power_sleep.h / power_sleep.cpp
 // KIM-TX send part (SendGPSMessage, SendDataMessage, readSuccessFile, splitLineProgressFile, splitLineDataFile) now in satellite_tx.h + satellite_tx.cpp
 // Config module (getInfoFromConfFile + its SD /conf.txt parsing) now in config.h + config.cpp
 //------- FUNCTIONS FOR AOP TABLE GENERATION-----------------------------------------------------------------------
