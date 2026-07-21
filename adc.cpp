@@ -2,8 +2,9 @@
 #include "conf.h"      // for ADC_PIN
 #include "logging.h"
 
-// Battery voltage, owned by the main sketch and read by the state machine's battery checks.
-extern float Vin_ADC;
+// Battery voltage + ADC hex reading, owned by this module (declared extern in adc.h).
+float Vin_ADC;      // read by the state machine's battery checks
+char ADCreadHex[3]; // 2 hex chars, put into the Kineis message by maskGPS
 
 // --- Current (analog) hardware only. On the new board this becomes an I2C read. ---
 #define ADC_RESOLUTION 8  // ADC resolution in bits

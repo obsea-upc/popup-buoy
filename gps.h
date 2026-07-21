@@ -24,3 +24,6 @@ extern uint16_t gpsYear;
 extern bool gpsFix;
 extern uint32_t epochTime;
 extern int maxGPSTimeout;  // GPS acquisition timeout (ms), loaded from conf.txt
+
+// GPS track file path (defined in gps.cpp).
+extern const char *GPSfilename;

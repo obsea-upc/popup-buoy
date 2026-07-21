@@ -28,3 +28,6 @@ bool sendHttpGetRequest(int idBoia, ActionType action, int &releaseFlag, Release
 bool parseTimeResponse(const String &payload, int &year, int &month, int &day, int &hour, int &minute, int &second);
 bool parsePermissionResponse(const String &payload, int &releaseFlag, ReleaseMode &releaseMode, int &sleeptime_h, int &sleeptime_m);
 bool parseSyncTimeResponse(const String& payload);
+
+// Lander date/time from the server's GETTIME response (defined in wifi_http.cpp).
+extern int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;

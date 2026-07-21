@@ -11,8 +11,10 @@
 extern TinyGPSPlus gps;
 extern SoftwareSerial gpsSerial;
 extern RTC_DS3231 rtcExt;
-extern File GpsTrackFile;
-extern const char *GPSfilename;
+
+// GPS track file, owned by this module (GPSfilename declared extern in gps.h).
+const char *GPSfilename = "/GPS_track.csv";
+File GpsTrackFile;
 
 // GPS fix data owned by this module (declared extern in gps.h).
 double gpsLat, gpsLong;

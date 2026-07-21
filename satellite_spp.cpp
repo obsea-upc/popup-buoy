@@ -10,8 +10,10 @@
 
 // Globals owned by the main sketch (popup-buoy.ino).
 extern RTC_DS3231 rtcExt;
-extern File AOPFile;
-extern const char *AOPfilename;
+
+// AOP table file, owned by this module (internal).
+const char *AOPfilename = "/AOP.txt";
+File AOPFile;
 extern int Decimal_CoverageDuration;
 extern String messageLogFile;
 extern double gpsLat, gpsLong;   // globals (NextSatellite's same-named params shadow these inside it)

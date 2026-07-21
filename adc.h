@@ -14,3 +14,7 @@ void adcSetup();
 
 // Sample the battery: fills the global Vin_ADC and writes 2 hex chars to ADCreadHex.
 void adcAcquireData(char *ADCreadHex);
+
+// Battery voltage and last ADC hex reading (defined in adc.cpp).
+extern float Vin_ADC;
+extern char ADCreadHex[3];

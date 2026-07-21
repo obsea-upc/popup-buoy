@@ -8,7 +8,9 @@
 // Globals owned by the main sketch (popup-buoy.ino).
 extern int syncTime;
 extern int maxWIFITimeout;
-extern int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
+
+// Server-provided lander time, owned by this module (declared extern in wifi_http.h).
+int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
 
 bool parseTimeResponse(const String &payload, int &year, int &month, int &day, int &hour, int &minute, int &second) {
     // Verificar si el campo "success" es true

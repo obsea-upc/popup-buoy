@@ -9,3 +9,6 @@ void SerialPrintDebugln(String message);
 
 // Append a timestamped, state-prefixed line to the SD log file (and echo it over serial debug).
 bool writeLogFile(String message);
+
+// SD log file path (defined in logging.cpp).
+extern const char *Log_filename;

@@ -26,3 +26,7 @@ char *GetLineDataFile(int Row);
 void SendFileKim(int time_to_send);
 void SaveInProgressFile(int CurrentRow, int CurrentNbrSent);
 void countLinesInDataFile();
+
+// Seabed-data and send-progress file paths (defined in satellite_tx.cpp).
+extern char *SD_data_filename;
+extern const char *SD_progress_filename;

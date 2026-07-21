@@ -3,11 +3,13 @@
 #include <SD.h>
 #include <RTClib.h>
 
-// Globals owned by the main sketch (popup-buoy.ino).
+// State + RTC owned by the main sketch (popup-buoy.ino).
 extern int currentState;
-extern File LogFile;
-extern const char *Log_filename;
 extern RTC_DS3231 rtcExt;
+
+// Log file, owned by this module (Log_filename declared extern in logging.h).
+const char *Log_filename = "/LogFile.txt";
+File LogFile;
 
 void SerialPrintDebug(int message) {
   #ifdef SERIAL_DEBUG

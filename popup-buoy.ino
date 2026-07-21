@@ -114,7 +114,7 @@
   unsigned long maxFRM; //Max time in stage 6
   int maxWIFITimeout;
   int sleepTimeWifiAttempt;
-  int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
+  // year_lander..second_lander now owned by wifi_http.cpp
   int syncTime;
   int fileBlinkLed = 0;
 
@@ -128,24 +128,15 @@
   WiFiUDP ntpUDP;
   NTPClient timeClient(ntpUDP, ntpServer, gmtOffset_sec, daylightOffset_sec);
 
-//------ Definitions for naming of the SD files ------------------------------------------------------------------------
-  const char *GPSfilename = "/GPS_track.csv";  // file with all the GPS data
-  File GpsTrackFile;
-  const char *Log_filename = "/LogFile.txt";  // Log file
-  File LogFile;
-  char *SD_data_filename; // File containing all the data which are going to be sent
-  File datamsgSD;
-  const char *SD_progress_filename = "/progressFile.txt";  // File containing the progress of sending the file, to be used to get where we are in the file with data
-  File progressDataFileSD;
-  // SD config file (SD_config_filename, ConfigFileSD) now owned by config.cpp
-  const char *AOPfilename = "/AOP.txt";  // file with all the GPS data
-  File AOPFile;
+//------ SD files ------------------------------------------------------------------------------------------------------
+  // SD file names/handles now owned by their modules: GPSfilename/GpsTrackFile (gps),
+  // Log_filename/LogFile (logging), SD_data_filename/datamsgSD + SD_progress_filename (satellite_tx),
+  // AOPfilename/AOPFile (satellite_spp), SD_config_filename/ConfigFileSD (config).
+  File progressDataFileSD;   // shared: written by createProgressFile() here and by satellite_tx
 
 
-//------ Definitions ADC read  -----------------------------------------------------------------------------------------
-  // ADC resolution now lives in adc.cpp (ADC_RESOLUTION)
-  char ADCreadHex[3]; // Buffer para almacenar el valor hexadecimal
-  float Vin_ADC;  //Battery voltage
+//------ ADC ----------------------------------------------------------------------------------------------------------
+  // ADC resolution, ADCreadHex and Vin_ADC now owned by adc.cpp
 
 //-------SETUP FUNTION -----------------------------------------------------------------------------------
 void setup() {

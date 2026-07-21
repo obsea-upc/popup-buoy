@@ -28,10 +28,12 @@ extern int nbrSendingProgress;
 extern int MaxRowDataFile;
 extern int MaxNbrMsgSendingDataFile;
 
-extern char *SD_data_filename;
-extern const char *SD_progress_filename;
-extern File progressDataFileSD;
-extern File datamsgSD;
+extern File progressDataFileSD;   // shared with the sketch (createProgressFile)
+
+// Data + progress files owned by this module (filenames declared extern in satellite_tx.h).
+char *SD_data_filename;
+const char *SD_progress_filename = "/progressFile.txt";
+File datamsgSD;
 
 void configureKIM(){
   SerialPrintDebugln("KIM Initial Setup ---->");
