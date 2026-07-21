@@ -1,10 +1,25 @@
+#pragma once
+
 #define SOFT_VERSION "v0.1.1"
 #define COMPILE_DATE __DATE__
 
 
+//------ Pop-up buoy state machine ------
+// Stored as an int in EEPROM (addr 0), so the numbering must stay stable
+// across firmware versions (ST_RELEASE=3 is kept so 4/5/6 keep their values).
+enum PopUpState {
+  ST_CONFIG  = 0,  // first-boot configuration (RTC/SD/FTP/WiFi)
+  ST_DEPLOY  = 1,  // wait for PB, then sleep for lander deployment
+  ST_SEABED  = 2,  // seabed routine: permission, FTP download, release
+  ST_RELEASE = 3,  // unused: release is handled inside ST_SEABED
+  ST_DM      = 4,  // surface: Drifting Mode
+  ST_LOWPWR  = 5,  // surface: survival / critical battery
+  ST_FRM     = 6   // surface: Fast Recovery Mode
+};
+
 ////----- TEST PARAMETERS
 
-#define INITIAL_STATE 0
+#define INITIAL_STATE ST_CONFIG
 #define TEST_FORCE_GPS_VILANOVA_PB2  // TEMP bench test: tap PB_2 during GPS search to fake a Vilanova i la Geltru fix (comment out before deployment)
 
 ///------ OPTIONS TO DEBUG

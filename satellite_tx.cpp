@@ -39,7 +39,7 @@ void configureKIM(){
     SerialPrintDebugln("Failed connexion to KIM module. Retriying in 3s...");
     delay(1000);
   }
-  if(currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5){
+  if(currentState != ST_FRM){  // all states except Fast Recovery Mode (6) transmit at PWR2
     if (KIM.set_PWR(PWR2, strlen(PWR2)) == OK_KIM) {
       writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
     } else {

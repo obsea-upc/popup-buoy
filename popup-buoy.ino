@@ -17,16 +17,7 @@
 *    !!! IMPORTANT - Modify the secrets.h file for this project with your network connection and ThingSpeak channel details !!!
 
 *
-*    SCreations.bcn & Matias Carandell (UPC)
-
-
-WORKING PROGRESS
-1. Calibrate battey read dfr tert ert wert
-
-
-FUTURE IMPROVEMENTS
-1. Change to internal RTC? calibrate the timmings -- Utilitzar calibració DAN. Utilutzar gps.time per SPP i al log fer algo
-2. Implement a board without intermediate boards. No Evaluation boards, all solded.
+*   Matias Carandell (UPC)
 
 
 ******************************************************************************/
@@ -48,20 +39,14 @@ FUTURE IMPROVEMENTS
 #include <RTClib.h>
 #include <NTPClient.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
 #include <WiFiUdp.h>
-#include <HTTPClient.h>  // included for the realese command to the rasp
 #include "ESP32_FTPClient.h"
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 #include "KIM.h"
 #include <EEPROM.h>
 #include <Wire.h>
-#include <FastCRC.h>
-#include "previpass.h"
 
-
-#define s(x) String(x)
 
 //------ Configuration FTP server -------------------------------------------------------------------------------------
   ESP32_FTPClient ftp(SECRET_FTP_SERVER_IP, SECRET_FTP_SERVER_USER, SECRET_FTP_SERVER_PASS);
@@ -206,14 +191,14 @@ void setup() {
     //digitalWrite(GPS_KIM, LOW); --> fixar-los a low d'inici
     //digitalWrite(GPS, LOW);
     digitalWrite(SD_card, HIGH);
-    if (currentState == 4 or currentState == 5 or currentState == 6) {
+    if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       digitalWrite(GPS_KIM, HIGH);
     } else{
       digitalWrite(GPS_KIM, LOW);
     }
 
   //------- EXTERNAL RTC SETUP---------------------------------------------------------------------------
-    if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
+    if (currentState == ST_CONFIG or currentState == ST_DEPLOY or currentState == ST_SEABED or currentState == ST_RELEASE or currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       Wire.begin();  // initialise I2C bus -> 100000 Hz (sda pin 21, scl pin 22)
 
       // initializing the rtc
@@ -250,7 +235,7 @@ void setup() {
       rtcExt.writeSqwPinMode(DS3231_OFF);
     }
   //------- WIFI (CONFIG) CONNECTION SETUP ---------------------------------------------------------------------------
-    if (currentState == 0) {
+    if (currentState == ST_CONFIG) {
       SerialPrintDebugln("RTC Configuration. Push button 1 for NTP sync. or 2 for Lander sync. (default)");
       SerialPrintDebug("delay 3s ----");
       delay(3000);
@@ -268,7 +253,7 @@ void setup() {
           break;
         case 3:
           SerialPrintDebugln("ERROR -- button 3 pushed. Changing to state 1");
-          changeStateTo(1);//change to state 1
+          changeStateTo(ST_DEPLOY);//change to state 1
           break;
         default:
           SerialPrintDebugln(WIFI_SSID2);
@@ -292,7 +277,7 @@ void setup() {
 
   //------- SD CARD SETUP ----------------------------------------------------------------------------------
     delay(100);
-    if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
+    if (currentState == ST_CONFIG or currentState == ST_DEPLOY or currentState == ST_SEABED or currentState == ST_RELEASE or currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       SerialPrintDebugln("SD INFO");
       //pinMode(19, INPUT_PULLUP); //pullup GPIO2 for SD_MMC mode, you need 1-15kOm resistor connected to GPIO2 and GPIO19
       SD.end();
@@ -330,7 +315,7 @@ void setup() {
       #endif
     }
   //--------CONF FILE PARAMETERS ---------------------------------------------------------------------------
-    if (currentState == 0 or currentState == 1 or currentState == 2 or currentState == 3 or currentState == 4 or currentState == 5 or currentState == 6) {
+    if (currentState == ST_CONFIG or currentState == ST_DEPLOY or currentState == ST_SEABED or currentState == ST_RELEASE or currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       getInfoFromConfFile();   // To get all the informations put by the user in this conf file
       char locationSD[64];
       sprintf(locationSD, "/PopUpBuoy_%d", idBuoy);
@@ -352,7 +337,7 @@ void setup() {
       rtcExt.now().toString(date);
       writeLogFile("The time on the RTC is " + String(date));
 
-    if (currentState == 0 && PBState == 1 && WiFi.status() == WL_CONNECTED) {
+    if (currentState == ST_CONFIG && PBState == 1 && WiFi.status() == WL_CONNECTED) {
       //sincronise time from NTP server
       SerialPrintDebugln("Obtaining time from NTP server");
       timeClient.begin();
@@ -363,7 +348,7 @@ void setup() {
       SerialPrintDebug("time changed in RTC DS3231. current time:");
       SerialPrintDebugln(date);
 
-    } else if (currentState == 0 && PBState == 2 && WiFi.status() == WL_CONNECTED){
+    } else if (currentState == ST_CONFIG && PBState == 2 && WiFi.status() == WL_CONNECTED){
       SerialPrintDebugln("Obtaining time from lander");
       if (!sendHttpGetRequest(idBuoy,GETTIME,releaseFlag,releaseMode,sleeptime_h,sleeptime_m)){
         writeLogFile("Adjustment of RTC time of buoy failed for wrong HTTP request!" );
@@ -391,7 +376,7 @@ void setup() {
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_34, 0);  // pin for the external RTC
 
   //------- GPS MODULE SETUP -------------------------------------------------------------------------------
-    if (currentState == 4 or currentState == 5 or currentState == 6) {
+    if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       SerialPrintDebugln("GPS Module Setup ---->");
       gpsSerial.begin(GPSBaud);
       SerialPrintDebug(F("Testing TinyGPSPlus library v. "));
@@ -400,7 +385,7 @@ void setup() {
       SerialPrintDebugln("GPS Module Setup ----> DONE");
     }
   //------- KIM MODULE SETUP -------------------------------------------------------------------------------
-    if (currentState == 4 or currentState == 5 or currentState == 6) {
+    if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       SerialPrintDebugln("KIM Module Setup ---->");
       while (!KIM.check()) {
         SerialPrintDebugln("Failed connexion to KIM module. Retriying in 3s...");
@@ -420,7 +405,7 @@ void setup() {
       SerialPrintDebugln("KIM Module Setup ----> DONE");
     }
  //------- ADC SETUP ---------------------------------------------------------------------------------------
-  if (currentState == 4 or currentState == 5 or currentState == 6) {
+  if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
     SerialPrintDebugln("ADC Setup ---->");
     adcSetup();
   }
@@ -455,7 +440,7 @@ void loop() {
       break;
     case 2:
       // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 4 TO TEST with coverage yes and 2000 seconds
-      currentState = 4;
+      currentState = ST_DM;
       eepromSaveState(currentState);
       //SetCoverageDurationTo_0();
       eepromSaveTimeCoverage(50);
@@ -467,7 +452,7 @@ void loop() {
       break;
     case 3:
       // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 5 TO TEST
-      currentState = 6;
+      currentState = ST_FRM;
       eepromSaveState(currentState);
       SetCoverageDurationTo_0();
       eepromSaveTimeCoverage(200);
@@ -491,15 +476,15 @@ void loop() {
 
   //Production Control
   switch (currentState) {
-    case 0:  //CONFIGURATION -- Set up state, in the set up we have set up the RTC time (NTP) and configured the SD, FTP and WiFi
+    case ST_CONFIG:  //CONFIGURATION -- Set up state, in the set up we have set up the RTC time (NTP) and configured the SD, FTP and WiFi
       digitalWrite(LED_R, HIGH);
       writeLogFile("First Boot.");
       SerialPrintDebug("Configuration finished for POP_UP_BUOY at state: ");
       SerialPrintDebugln(currentState);
       SerialPrintDebugln("Moving to state 1.");
-      changeStateTo(1);//change to state 1
+      changeStateTo(ST_DEPLOY);//change to state 1
       break;
-    case 1:  //DEPLOYMENT -- Deployment sleep
+    case ST_DEPLOY:  //DEPLOYMENT -- Deployment sleep
       writeLogFile("- sleeping for " +  String(sleeptime_s1_h) + " hours and " + String(sleeptime_s1_m) + " minutes." ); //configure sleep (each pop up buoy will have a different time)
       // wait until button is pressed
       SerialPrintDebugln("Waiting for PB_1 to be pressed to start mission (set to sleep for lander installation)");
@@ -508,7 +493,7 @@ void loop() {
         digitalWrite(LED_R, !digitalRead(LED_R));
       }
       digitalWrite(LED_R, HIGH);
-      changeStateTo(2);//change to state 1
+      changeStateTo(ST_SEABED);//change to state 1
       writeLogFile("PB pressed, changing state to 2");
       #ifdef SERIAL_DEBUG
         delay(1000);  //necessary to discharge the intrinsec capacitor of button 1
@@ -518,7 +503,7 @@ void loop() {
       delay(10);
       break;
 
-    case 2:  //DEEP WATER ROUTINE -- Pre-Launch, ask for permission and download (deep sea routines)
+    case ST_SEABED:  //DEEP WATER ROUTINE -- Pre-Launch, ask for permission and download (deep sea routines)
       writeLogFile("Wakeup");
       digitalWrite(LED_G, LOW);
       digitalWrite(LED_Y, LOW);
@@ -538,7 +523,7 @@ void loop() {
               digitalWrite(LED_Y, LOW);
               delay(100);
             }
-            changeStateTo(4);
+            changeStateTo(ST_DM);
             SleepModeSequence(0, 5, 0, 0);
             break;
           }else{
@@ -613,15 +598,15 @@ void loop() {
           writeLogFile("Release of buoy " + String(idBuoy)+ " success! Sleeping for " + String (sleepTimeState2_m) + " minutes to reach the surface." );
           switch (releaseMode) {
             case FRM:
-              changeStateTo(6); //Change state to 6 and save state in eeprom
+              changeStateTo(ST_FRM); //Change state to 6 and save state in eeprom
               writeLogFile("Finished release phase, changing state to 6 as Fast Recovery Mode.");
               break;
             case DM:
-              changeStateTo(4); //Change state to 4 and save state in eeprom
+              changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
               writeLogFile("Finished release phase, changing state to 4 as Drifting Mode");
               break;
             default:
-              changeStateTo(4); //Change state to 4 and save state in eeprom
+              changeStateTo(ST_DM); //Change state to 4 and save state in eeprom
               writeLogFile("Finished release phase. ERROR reading the release mode. Guessing Drifting Mode (state to 4)");
               break;
           }
@@ -652,11 +637,8 @@ void loop() {
         }
       break;
 
-    case 3:  //RELEASE -- Launch the buoy -- Added to case 2
-      delay(10);
-      break;
-
-    case 4:  //Surface (ocean surface routines)
+    // ST_RELEASE (3): unused -- release is handled inside ST_SEABED, so no case here.
+    case ST_DM:  //Surface (ocean surface routines)
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 4  ---
       // --- CONFIGURING KIM  ---
@@ -732,20 +714,20 @@ void loop() {
         if ( Vin_ADC>Bat_critlevel){  //Battery still ok
           writeLogFile("Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(4);
+          changeStateTo(ST_DM);
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else{  //
           writeLogFile("BATTERY ALERT! Changing to state 5 and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(5);
+          changeStateTo(ST_LOWPWR);
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }
       break;
-    case 5:  //LOW-power
+    case ST_LOWPWR:  //LOW-power
 
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 5  ---
@@ -787,20 +769,20 @@ void loop() {
         if ( Vin_ADC>Bat_critlevel){  //Battery still ok
           writeLogFile("Battery OK again. Changing to state 4 and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(4);
+          changeStateTo(ST_DM);
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else{  //
           writeLogFile("BATTERY ALERT! Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
-          changeStateTo(5);
+          changeStateTo(ST_LOWPWR);
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }
       break;
-    case 6:
+    case ST_FRM:  //Fast Recovery Mode
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 6  ---
       // --- CONFIGURING KIM  ---
@@ -830,21 +812,21 @@ void loop() {
       // --- MOVING TO NEXT STATUS ---
         if((millis() - initTime > maxFRM*3600*1000)) {
           writeLogFile("Fast Recovery Mode timeout! Not recovered for " + String(maxFRM) + " hours, so sleeping for " + String(secondsBeforeNextStatellite) + "seconds and moving to Drifting Mode at state 4.");
-          changeStateTo(4);
+          changeStateTo(ST_DM);
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else if(Vin_ADC < Bat_critlevel){
           writeLogFile("BATTERY ALERT! Sleeping for " + String(secondsBeforeNextStatellite) + " seconds and changing to state 5.");
-          changeStateTo(5);
+          changeStateTo(ST_LOWPWR);
           ChangeSecondsInHoursAndMinutes(&secondsBeforeNextStatellite, &minutesBeforeNextStatellite, &hoursBeforeNextStatellite); // Conversion of the time needed for the sleeping time
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
           delay(10);
         }else{
           writeLogFile("ERROR! Sleeping for 5 minutes and moving to state 4.");
-          changeStateTo(4);
+          changeStateTo(ST_DM);
           writeLogFile("Entering Sleep mode");
           SleepModeSequence(0, 5, 0, 0);
           delay(10);

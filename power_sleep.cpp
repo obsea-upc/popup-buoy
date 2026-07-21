@@ -38,7 +38,7 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
   //End all SD process
     SD.end();
   //Turn off peripherals (except for case 6)
-   if (currentState!=6){
+   if (currentState != ST_FRM){
       ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices (not in case &)
       delay(5);
       ConnectPeripherals(false, SD_card);
@@ -48,7 +48,7 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
     esp_sleep_enable_timer_wakeup(sleeping_time * uS_TO_S_FACTOR);
     esp_light_sleep_start();
   //Turn on peripherals (except for case 6)
-    if (currentState!=6){
+    if (currentState != ST_FRM){
       ConnectPeripherals(true, GPS_KIM);
       delay(5);
       ConnectPeripherals(true, SD_card);
