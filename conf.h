@@ -37,7 +37,9 @@ inline const char* stateName(int s) {
 #define TEST_FORCE_GPS_VILANOVA_PB2  // Test aid (permanent): tap PB_2 during the GPS search to inject a Vilanova i la Geltru fix from the RTC, so the Surface/SPP path can be exercised indoors
 
 ///------ OPTIONS TO DEBUG
-#define GPS_DEBUG_NMEA_GSA  // TEMPORARY: echo raw NMEA GSA sentences to read the fix mode (2 = 2D, 3 = 3D)
+//#define GPS_DEBUG_NMEA_GSA  // GPS diagnostics, kept for future use: echoes raw NMEA (GSA/PCAS/TXT),
+                              // sends a $PCAS06 chipset probe and a UBX test that tries to silence GSA.
+                              // Uncomment to investigate the receiver again (e.g. after rewiring its RX pin).
 #define SERIAL_DEBUG  // comment line to disable Serial prints
 #define SERIAL_DEBUG_BAUDRATE 115200
 

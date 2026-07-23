@@ -3,13 +3,12 @@
 #include "logging.h"
 #include "power_sleep.h"   // for ConnectPeripherals
 #include <TinyGPSPlus.h>
-#include <SoftwareSerial.h>
 #include <RTClib.h>
 #include <SD.h>
 
 // Objects owned by the main sketch (popup-buoy.ino).
 extern TinyGPSPlus gps;
-extern SoftwareSerial gpsSerial;
+extern HardwareSerial gpsSerial;
 extern RTC_DS3231 rtcExt;
 
 // GPS track file, owned by this module (GPSfilename declared extern in gps.h).
@@ -60,13 +59,17 @@ static void debugEchoGsa(char c) {
 // This is the ground truth for whether the 2D configuration actually took effect.
 static TinyGPSCustom gsaFixMode;
 
-// Open the GPS port with a bigger RX buffer than the library's 64-byte default: the receiver
-// streams NMEA continuously, and an overflowing buffer silently drops bytes -- which is exactly
-// how a 10-byte UBX ACK gets lost.
+// Open the GPS port on hardware UART1, remapped to the GPS pins through the GPIO matrix
+// (UART0 is the USB debug console and UART2 drives the KIM module).
+// A real UART instead of SoftwareSerial: same reception, but more robust, no bit-banging on the
+// CPU and ~6 kB less flash. Note this does NOT fix the transmit path -- see gpsSerialBegin's
+// caller notes: nothing sent to this module is acted upon (GPIO2 issue, pending a rewire).
 void gpsSerialBegin() {
-  gpsSerial.begin(GPSBaud, SWSERIAL_8N1, RXPin_GPS, TXPin_GPS, false, 256);
+  gpsSerial.setRxBufferSize(512);   // the receiver streams NMEA continuously; never starve it
+  gpsSerial.begin(GPSBaud, SERIAL_8N1, RXPin_GPS, TXPin_GPS);
 }
 
+#ifdef GPS_DEBUG_NMEA_GSA
 // Send an NMEA sentence with its checksum: sendNmea("PCAS06,0") -> "$PCAS06,0*1B\r\n".
 // Cheap "NEO-6M" modules are often CASIC/AT6558 based and are configured with these proprietary
 // $PCAS sentences rather than with u-blox UBX frames.
@@ -90,6 +93,7 @@ static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uin
   gpsSerial.write(ckA);
   gpsSerial.write(ckB);
 }
+#endif  // GPS_DEBUG_NMEA_GSA
 
 void configGPS() {
   // This receiver is NOT a u-blox: it reports $GNGSA with an NMEA 4.1 systemId field (GPS + BeiDou)

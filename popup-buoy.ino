@@ -43,7 +43,6 @@
 #include <WiFiUdp.h>
 #include "ESP32_FTPClient.h"
 #include <TinyGPSPlus.h>
-#include <SoftwareSerial.h>
 #include "KIM.h"
 #include <EEPROM.h>
 #include <Wire.h>
@@ -54,7 +53,7 @@
 
 //------ Configuration for GPS module ---------------------------------------------------------------------------------
   TinyGPSPlus gps;                                 // The TinyGPSPlus object
-  SoftwareSerial gpsSerial(RXPin_GPS, TXPin_GPS);  // The serial connection to the GPS device
+  HardwareSerial gpsSerial(1);                     // UART1 (UART0 = USB debug, UART2 = KIM); pins set in gpsSerialBegin()
 
 //------ Configuration for KINEIS module ------------------------------------------------------------------------------
   HardwareSerial kimSerial(2);  // hard coded no library
