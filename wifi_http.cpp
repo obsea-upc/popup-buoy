@@ -348,8 +348,11 @@ bool connectToRaspWiFi() {
 // failure. Call before every sleep; harmless if Wi-Fi was never brought up.
 void wifiShutdown() {
   if (WiFi.getMode() == WIFI_OFF) return;   // never started, nothing to close
-  // disconnect(wifioff=true) already sends the deauth and powers the radio down; adding an
-  // explicit mode(WIFI_OFF) on top of it only makes the supplicant spray repeated deauth frames.
+  // disconnect(wifioff=true) already sends the deauth and powers the radio down, so no explicit
+  // mode(WIFI_OFF) is needed afterwards. Note the AP logs ~32 identical "disassociated" lines per
+  // shutdown: that is the ESP32 supplicant retransmitting the deauth frame, not a malfunction, and
+  // it happens with or without the extra mode call. The station does get dropped immediately,
+  // which is the whole point; the duplicate lines are only noise in the server's journal.
   WiFi.disconnect(true, true);
   delay(150);
   writeLogFile("WiFi closed cleanly (deauth sent to the AP)");
