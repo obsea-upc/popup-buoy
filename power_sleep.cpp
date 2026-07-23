@@ -2,6 +2,7 @@
 #include "conf.h"
 #include "logging.h"
 #include "eeprom_store.h"   // for eepromReadSyncTime
+#include "wifi_http.h"      // for wifiShutdown
 #include <RTClib.h>
 #include <SD.h>
 #include <esp_sleep.h>
@@ -12,6 +13,8 @@ extern int syncTime;
 extern int currentState;
 
 void SleepModeSequence(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleepingSecond, int sleepMode) {
+  //Leave the AP cleanly before we vanish (still on SD power, so this can be logged)
+  wifiShutdown();
   //Disconnect Peripherals
   ConnectPeripherals(false, GPS_KIM);
   delay(10);

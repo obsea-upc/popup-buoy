@@ -330,6 +330,10 @@ void setup() {
       }
     }
 
+    // CONFIG is done with the server here, but DEPLOY then waits for PB_1 for as long as the user
+    // takes to press it. Release the AP now instead of staying associated all that time.
+    wifiShutdown();
+
   //------- SLEEP MODE SETUP -------------------------------------------------------------------------------
     // Two ways of waking up, by a timmer or by an external iterruption
     //esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);

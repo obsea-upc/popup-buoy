@@ -19,6 +19,10 @@ enum ReleaseMode {
 bool connectToRaspWiFi();
 String getWiFiFailureReason(int status);
 
+// Close the Wi-Fi link cleanly, sending a deauth so the AP drops us from its association
+// table instead of holding a stale entry. Safe to call when Wi-Fi was never started.
+void wifiShutdown();
+
 // Issue an HTTP GET to the server for the given action, then parse the response.
 // GETTIME fills the year_lander..second_lander globals; GETSYNCTIME fills syncTime;
 // PERMISSION fills releaseFlag/releaseMode/sleeptime_h/sleeptime_m via the refs.

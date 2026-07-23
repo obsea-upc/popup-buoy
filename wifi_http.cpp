@@ -341,6 +341,20 @@ bool connectToRaspWiFi() {
   }
 }
 
+// The buoy used to enter deep sleep while still associated, so it vanished off the air without
+// ever telling the AP. The AP kept the stale association and refused us on the next attempt a few
+// minutes later, which is why a retry only worked once enough time had passed (or after the
+// server was restarted by hand). Deauthenticating before we disappear removes that whole class of
+// failure. Call before every sleep; harmless if Wi-Fi was never brought up.
+void wifiShutdown() {
+  if (WiFi.getMode() == WIFI_OFF) return;   // never started, nothing to close
+  WiFi.disconnect(true, true);              // send the deauth, then power the radio down
+  delay(100);
+  WiFi.mode(WIFI_OFF);
+  delay(50);
+  writeLogFile("WiFi closed cleanly (deauth sent to the AP)");
+}
+
 String getWiFiFailureReason(int status) {
   switch (status) {
     case WL_IDLE_STATUS: return "Idle status";
