@@ -3158,22 +3158,51 @@ int uploadFilesViaFTP(std::vector<String>& sdPaths, std::vector<String>& basenam
       writeLogFile("No SD path for " + basenames[i] + " — skipping");
       continue;
     }
+    // Grab the size, close, THEN log: writeLogFile appends to LogFile.txt,
+    // and when the file being uploaded IS LogFile.txt, appending while a
+    // read handle is open on it is undefined on the FAT driver. Never call
+    // writeLogFile while f is open.
     File f = SD.open(sdPaths[i].c_str(), FILE_READ);
     if (!f) {
       writeLogFile("Cannot open " + sdPaths[i] + " — skipping");
       continue;
     }
-    writeLogFile("FTP uploading " + basenames[i] + " (" + String(f.size()) + " B)");
+    size_t fileSize = f.size();
+    f.close();
+    writeLogFile("FTP uploading " + basenames[i] + " (" + String(fileSize) + " B)");
+    f = SD.open(sdPaths[i].c_str(), FILE_READ);
+    if (!f) {
+      writeLogFile("Cannot reopen " + sdPaths[i] + " — skipping");
+      continue;
+    }
     ftpUp->InitFile("Type I");  // opens fresh PASV data connection for this STOR
     ftpUp->NewFile(basenames[i].c_str());
+    bool readError = false;
     while (f.available()) {
       int n = f.read(buf, sizeof(buf));
-      if (n > 0) ftpUp->WriteData(buf, n);
+      if (n <= 0) {
+        // SD read error: the position doesn't advance, so available() stays
+        // true and looping again would spin forever — loopTask has no
+        // watchdog, the buoy would hang until the battery died.
+        readError = true;
+        break;
+      }
+      ftpUp->WriteData(buf, n);
     }
     ftpUp->CloseFile();
     f.close();
-    uploaded++;
-    writeLogFile("Uploaded " + basenames[i]);
+    if (readError) {
+      writeLogFile("SD read error on " + basenames[i] + " — truncated, not counted");
+    } else if (!ftpUp->isConnected()) {
+      // STOR rejected, PASV setup failed, or connection dropped mid-file:
+      // the library only surfaces any of these via isConnected(), so check
+      // it AFTER CloseFile before counting. The loop head logs and stops
+      // on the next iteration.
+      writeLogFile("FTP session error on " + basenames[i] + " — not counted");
+    } else {
+      uploaded++;
+      writeLogFile("Uploaded " + basenames[i]);
+    }
   }
 
   ftpUp->CloseConnection();
@@ -3203,9 +3232,9 @@ int tryUploadDataToUSV() {
        1. Connect to BlueBoat WiFi AP       → -1 if fail
        2. Sync RTC, verify server identity  → -2 if not blueboat
        3. Request upload permission         → -3 if denied
-       4. PUT file manifest, get wanted list
-       5. FTP STOR each requested file
-       6. POST transfer-complete, return 0
+       4. PUT file manifest, get wanted list → -4 if fail
+       5. FTP STOR each requested file       → -6 if incomplete
+       6. POST transfer-complete             → -5 if unconfirmed, else 0
   */
 
   writeLogFile("tryUploadDataToUSV: starting");
@@ -3253,6 +3282,15 @@ int tryUploadDataToUSV() {
   // Step 5: FTP upload
   int uploaded = uploadFilesViaFTP(wantedSDPaths, wantedBasenames);
   writeLogFile("tryUploadDataToUSV: uploaded " + String(uploaded) + "/" + String(nWanted) + " files");
+
+  if (uploaded < nWanted) {
+    // Partial upload: do NOT confirm and do NOT return 0 — the transfer is
+    // not complete, so the server must not be told it is. Fail instead: the
+    // next cycle re-manifests and the server re-requests whatever it is
+    // still missing.
+    writeLogFile("tryUploadDataToUSV: incomplete upload — retrying next cycle");
+    return -6;
+  }
 
   // Step 6: Confirm
   if (!confirmTransfer(uploaded)) {
