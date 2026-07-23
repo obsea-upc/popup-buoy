@@ -24,6 +24,20 @@ bool gpsFix;
 uint32_t epochTime;
 int maxGPSTimeout;  // GPS acquisition timeout (ms), loaded from conf.txt
 
+// Last known fix, kept in the ESP32's RTC slow memory so it survives deep sleep and can be fed
+// back to the receiver as a warm-start hint. It is lost on a full power cycle, in which case we
+// simply skip the position hint. Deliberately not read back from GPS_track.csv: that file grows
+// and would have to be scanned to its end on every wake-up.
+RTC_DATA_ATTR static double lastFixLat = 0.0;
+RTC_DATA_ATTR static double lastFixLon = 0.0;
+RTC_DATA_ATTR static bool   lastFixValid = false;
+
+// GPS time runs ahead of UTC by the accumulated leap seconds (18 s since Jan 2017).
+// Only used to build a coarse time hint, and we declare +/-30 s accuracy, so a future
+// leap second would not invalidate it.
+static const uint32_t GPS_UTC_LEAP_SECONDS = 18;
+static const uint32_t GPS_EPOCH_IN_UNIX    = 315964800UL;  // 1980-01-06 00:00:00 UTC
+
 // Send a UBX frame, computing the 8-bit Fletcher checksum over class/id/length/payload.
 // (The receiver silently discards any frame whose checksum or declared length is wrong.)
 static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uint16_t len) {
@@ -36,6 +50,74 @@ static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uin
   gpsSerial.write(payload, len);
   gpsSerial.write(ckA);
   gpsSerial.write(ckB);
+}
+
+#ifdef SERIAL_DEBUG
+// Debug aid: wait briefly for the receiver's UBX-ACK-ACK for a configuration message, so we can
+// see in the log whether the frame was accepted (a malformed frame is silently discarded).
+static bool waitForUbxAck(uint8_t msgClass, uint8_t msgId, uint16_t timeoutMs) {
+  uint8_t expected[10] = { 0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, msgClass, msgId, 0, 0 };
+  uint8_t ckA = 0, ckB = 0;
+  for (uint8_t i = 2; i < 8; i++) { ckA += expected[i]; ckB += ckA; }
+  expected[8] = ckA; expected[9] = ckB;
+
+  uint8_t idx = 0;
+  unsigned long start = millis();
+  while (millis() - start < timeoutMs) {
+    if (gpsSerial.available()) {
+      uint8_t b = gpsSerial.read();
+      if (b == expected[idx]) {
+        if (++idx == sizeof(expected)) return true;   // complete ACK-ACK for this message
+      } else {
+        idx = (b == 0xB5) ? 1 : 0;                    // resync on a new frame start
+      }
+    }
+  }
+  return false;
+}
+#endif
+
+// Feed the receiver a coarse time (from the DS3231) and our last known position, so it can
+// warm-start instead of cold-starting after the relay has powered it down. Both hints are
+// optional and are sent with deliberately loose accuracies: they only narrow the search, and
+// if one turns out to be inconsistent the receiver just falls back to a normal acquisition.
+static void sendGpsAiding() {
+  uint8_t ini[48] = { 0 };   // UBX-AID-INI payload is exactly 48 bytes
+  uint32_t flags = 0;
+
+  // --- position hint: last fix, carried across deep sleep in RTC memory ---
+  if (lastFixValid) {
+    int32_t lat = (int32_t)(lastFixLat * 1e7);   // degrees * 1e-7
+    int32_t lon = (int32_t)(lastFixLon * 1e7);
+    uint32_t posAcc = 100000;                    // 1 km in cm: loose on purpose (the buoy drifts)
+    memcpy(&ini[0],  &lat, 4);
+    memcpy(&ini[4],  &lon, 4);
+    memcpy(&ini[12], &posAcc, 4);                // ecefZOrAlt (offset 8) stays 0 and is flagged invalid
+    flags |= 0x01;   // position valid
+    flags |= 0x20;   // position given as lat/lon/alt
+    flags |= 0x40;   // altitude invalid
+  }
+
+  // --- time hint: only when the RTC is trustworthy ---
+  DateTime now = rtcExt.now();
+  if (!rtcExt.lostPower() && now.year() >= 2025) {
+    uint32_t gpsSeconds = (uint32_t)(now.unixtime() - GPS_EPOCH_IN_UNIX + GPS_UTC_LEAP_SECONDS);
+    uint16_t week  = (uint16_t)(gpsSeconds / 604800UL);
+    uint32_t towMs = (gpsSeconds % 604800UL) * 1000UL;
+    uint32_t tAccMs = 30000;                     // +/-30 s: an honest, coarse hint
+    memcpy(&ini[18], &week, 2);
+    memcpy(&ini[20], &towMs, 4);
+    memcpy(&ini[28], &tAccMs, 4);
+    flags |= 0x02;   // time valid
+  }
+
+  if (flags == 0) return;                        // neither hint available -> nothing to send
+  memcpy(&ini[44], &flags, 4);
+  sendUBX(0x0B, 0x01, ini, sizeof(ini));         // class 0x0B (AID), id 0x01 (INI)
+
+  #ifdef SERIAL_DEBUG
+    SerialPrintDebugln("GPS aiding sent (flags 0x" + String(flags, HEX) + ")");
+  #endif
 }
 
 void configGPS() {
@@ -56,6 +138,16 @@ void configGPS() {
   nav5[23] = 60;                            // dgpsTimeOut, u-blox default
 
   sendUBX(0x06, 0x24, nav5, sizeof(nav5));  // class 0x06 (CFG), id 0x24 (NAV5)
+
+  #ifdef SERIAL_DEBUG
+    if (waitForUbxAck(0x06, 0x24, 300)) {
+      SerialPrintDebugln("GPS CFG-NAV5 acknowledged (Sea model, 2D fix)");
+    } else {
+      SerialPrintDebugln("WARNING: no ACK for GPS CFG-NAV5");
+    }
+  #endif
+
+  sendGpsAiding();   // warm-start hints (AID-INI is not acknowledged by the receiver)
 
   delay(500);  // Espera para permitir que el GPS procese la configuración
 }
@@ -128,6 +220,9 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
           SerialPrintDebug(F(";"));
           SerialPrintDebug(String(gpsLong,6));
           gpsFix = true;
+          lastFixLat = gpsLat;      // remember the real fix for the next warm start
+          lastFixLon = gpsLong;
+          lastFixValid = true;
         } else {
           //SerialPrintDebug(F("INVALID"));
           gpsState = 0;
