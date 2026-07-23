@@ -348,10 +348,10 @@ bool connectToRaspWiFi() {
 // failure. Call before every sleep; harmless if Wi-Fi was never brought up.
 void wifiShutdown() {
   if (WiFi.getMode() == WIFI_OFF) return;   // never started, nothing to close
-  WiFi.disconnect(true, true);              // send the deauth, then power the radio down
-  delay(100);
-  WiFi.mode(WIFI_OFF);
-  delay(50);
+  // disconnect(wifioff=true) already sends the deauth and powers the radio down; adding an
+  // explicit mode(WIFI_OFF) on top of it only makes the supplicant spray repeated deauth frames.
+  WiFi.disconnect(true, true);
+  delay(150);
   writeLogFile("WiFi closed cleanly (deauth sent to the AP)");
 }
 
