@@ -39,7 +39,8 @@ inline const char* stateName(int s) {
 ///------ OPTIONS TO DEBUG
 //#define GPS_DEBUG_NMEA_GSA  // GPS diagnostics, kept for future use: echoes raw NMEA (GSA/PCAS/TXT),
                               // sends a $PCAS06 chipset probe and a UBX test that tries to silence GSA.
-                              // Uncomment to investigate the receiver again (e.g. after rewiring its RX pin).
+                              // The current receiver ignores every command (see gps.cpp); uncomment to
+                              // investigate again if a genuine u-blox module is ever fitted.
 #define SERIAL_DEBUG  // comment line to disable Serial prints
 #define SERIAL_DEBUG_BAUDRATE 115200
 

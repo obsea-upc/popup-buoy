@@ -62,8 +62,15 @@ static TinyGPSCustom gsaFixMode;
 // Open the GPS port on hardware UART1, remapped to the GPS pins through the GPIO matrix
 // (UART0 is the USB debug console and UART2 drives the KIM module).
 // A real UART instead of SoftwareSerial: same reception, but more robust, no bit-banging on the
-// CPU and ~6 kB less flash. Note this does NOT fix the transmit path -- see gpsSerialBegin's
-// caller notes: nothing sent to this module is acted upon (GPIO2 issue, pending a rewire).
+// CPU and ~6 kB less flash.
+//
+// The receiver ignores every configuration command we send (UBX and CASIC $PCAS alike). This was
+// traced on a bare ESP32 + GPS test rig: a GPIO17->GPIO16 loopback proved the UART transmit path
+// is perfect (ASCII and binary UBX frames both came back byte for byte), so the module is
+// receiving the commands and discarding them. These "NEO-6M" modules are clones -- they emit
+// $GNRMC/$GNGSA with an NMEA 4.1 BeiDou systemId, which a genuine GPS-only NEO-6M never could --
+// and they implement no configuration protocol. Configuring the receiver would need a genuine
+// u-blox module; it is not a wiring or pin problem.
 void gpsSerialBegin() {
   gpsSerial.setRxBufferSize(512);   // the receiver streams NMEA continuously; never starve it
   gpsSerial.begin(GPSBaud, SERIAL_8N1, RXPin_GPS, TXPin_GPS);
