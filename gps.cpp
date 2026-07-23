@@ -78,6 +78,19 @@ static void sendNmea(const char *body) {
   gpsSerial.print(sentence);
 }
 
+// Send a UBX frame, computing the 8-bit Fletcher checksum over class/id/length/payload.
+static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uint16_t len) {
+  uint8_t header[6] = { 0xB5, 0x62, msgClass, msgId, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8) };
+  uint8_t ckA = 0, ckB = 0;
+  for (uint8_t i = 2; i < 6; i++) { ckA += header[i]; ckB += ckA; }   // checksum skips the 2 sync bytes
+  for (uint16_t i = 0; i < len; i++) { ckA += payload[i]; ckB += ckA; }
+
+  gpsSerial.write(header, sizeof(header));
+  gpsSerial.write(payload, len);
+  gpsSerial.write(ckA);
+  gpsSerial.write(ckB);
+}
+
 void configGPS() {
   // This receiver is NOT a u-blox: it reports $GNGSA with an NMEA 4.1 systemId field (GPS + BeiDou)
   // and never acknowledged UBX, so the previous UBX-CFG-NAV5 / AID-INI path was dead weight (it also
@@ -87,7 +100,15 @@ void configGPS() {
   #ifdef GPS_DEBUG_NMEA_GSA
     while (gpsSerial.available()) gpsSerial.read();   // clear the backlog so the reply is easy to spot
     sendNmea("PCAS06,0");                             // CASIC product/version query
-    SerialPrintDebugln("GPS: sent $PCAS06,0 chipset probe");
+
+    // TX PATH TEST: ask the receiver to stop emitting GSA (UBX-CFG-MSG, NMEA class 0xF0, GSA id 0x02,
+    // rate 0). This only touches GSA -- GGA/RMC, which TinyGPS needs for the fix, are left alone, and
+    // the change lives in RAM only, so a power cycle restores it.
+    // If the GSA lines below stop appearing, our transmit path works (and the module is u-blox).
+    // If they keep coming, nothing we send is reaching the module.
+    uint8_t cfgMsgGsaOff[3] = { 0xF0, 0x02, 0x00 };
+    sendUBX(0x06, 0x01, cfgMsgGsaOff, sizeof(cfgMsgGsaOff));
+    SerialPrintDebugln("GPS TX TEST: sent $PCAS06 probe + UBX-CFG-MSG to silence GSA");
   #endif
 
   delay(200);  // let the receiver settle before we start parsing
