@@ -339,7 +339,7 @@ void setup() {
   //------- GPS MODULE SETUP -------------------------------------------------------------------------------
     if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       SerialPrintDebugln("GPS Module Setup ---->");
-      gpsSerial.begin(GPSBaud);
+      gpsSerialBegin();
       SerialPrintDebug(F("Testing TinyGPSPlus library v. "));
       SerialPrintDebugln(TinyGPSPlus::libraryVersion());
       delay(10);
@@ -540,7 +540,7 @@ void loop() {
       currentState = ST_DM;
       eepromSaveState(currentState);
       //SetCoverageDurationTo_0();
-      eepromSaveTimeCoverage(50);
+      eepromSaveTimeCoverage(500);
       SetCoverageStateTo(1);
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();

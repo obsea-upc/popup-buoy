@@ -38,6 +38,17 @@ RTC_DATA_ATTR static bool   lastFixValid = false;
 static const uint32_t GPS_UTC_LEAP_SECONDS = 18;
 static const uint32_t GPS_EPOCH_IN_UNIX    = 315964800UL;  // 1980-01-06 00:00:00 UTC
 
+// Fix mode reported by the receiver in the NMEA GSA sentence: 1 = no fix, 2 = 2D, 3 = 3D.
+// This is the ground truth for whether the 2D configuration actually took effect.
+static TinyGPSCustom gsaFixMode;
+
+// Open the GPS port with a bigger RX buffer than the library's 64-byte default: the receiver
+// streams NMEA continuously, and an overflowing buffer silently drops bytes -- which is exactly
+// how a 10-byte UBX ACK gets lost.
+void gpsSerialBegin() {
+  gpsSerial.begin(GPSBaud, SWSERIAL_8N1, RXPin_GPS, TXPin_GPS, false, 256);
+}
+
 // Send a UBX frame, computing the 8-bit Fletcher checksum over class/id/length/payload.
 // (The receiver silently discards any frame whose checksum or declared length is wrong.)
 static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uint16_t len) {
@@ -52,9 +63,9 @@ static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uin
   gpsSerial.write(ckB);
 }
 
-#ifdef SERIAL_DEBUG
-// Debug aid: wait briefly for the receiver's UBX-ACK-ACK for a configuration message, so we can
-// see in the log whether the frame was accepted (a malformed frame is silently discarded).
+// Wait briefly for the receiver's UBX-ACK-ACK for a configuration message. Used both to retry a
+// lost configuration and to report in the log whether it was accepted (a malformed frame, or one
+// whose ACK we missed because the RX buffer overflowed, produces no match).
 static bool waitForUbxAck(uint8_t msgClass, uint8_t msgId, uint16_t timeoutMs) {
   uint8_t expected[10] = { 0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, msgClass, msgId, 0, 0 };
   uint8_t ckA = 0, ckB = 0;
@@ -75,7 +86,6 @@ static bool waitForUbxAck(uint8_t msgClass, uint8_t msgId, uint16_t timeoutMs) {
   }
   return false;
 }
-#endif
 
 // Feed the receiver a coarse time (from the DS3231) and our last known position, so it can
 // warm-start instead of cold-starting after the relay has powered it down. Both hints are
@@ -137,13 +147,20 @@ void configGPS() {
   nav5[20] = 0x2C; nav5[21] = 0x01;         // tAcc = 300 m
   nav5[23] = 60;                            // dgpsTimeOut, u-blox default
 
-  sendUBX(0x06, 0x24, nav5, sizeof(nav5));  // class 0x06 (CFG), id 0x24 (NAV5)
+  // Send it and confirm with the receiver's ACK, retrying a couple of times: the ACK is only
+  // 10 bytes and can be lost in the NMEA stream, and a lost configuration is worth retrying.
+  bool acked = false;
+  for (uint8_t attempt = 0; attempt < 3 && !acked; attempt++) {
+    while (gpsSerial.available()) gpsSerial.read();   // drop the NMEA backlog so the ACK arrives first
+    sendUBX(0x06, 0x24, nav5, sizeof(nav5));          // class 0x06 (CFG), id 0x24 (NAV5)
+    acked = waitForUbxAck(0x06, 0x24, 300);
+  }
 
   #ifdef SERIAL_DEBUG
-    if (waitForUbxAck(0x06, 0x24, 300)) {
+    if (acked) {
       SerialPrintDebugln("GPS CFG-NAV5 acknowledged (Sea model, 2D fix)");
     } else {
-      SerialPrintDebugln("WARNING: no ACK for GPS CFG-NAV5");
+      SerialPrintDebugln("WARNING: no ACK for GPS CFG-NAV5 after 3 attempts");
     }
   #endif
 
@@ -154,8 +171,9 @@ void configGPS() {
 
 bool gpsAcquireSatellites() {
   ConnectPeripherals(true, GPS_KIM);
-  gpsSerial.begin(GPSBaud);
+  gpsSerialBegin();
   gps = TinyGPSPlus();  // Reset the GPS
+  gsaFixMode.begin(gps, "GPGSA", 2);   // must be re-registered after the reset (GSA field 2 = fix mode)
   delay(10);
   configGPS();
   unsigned long startTime = millis();  // Marca el tiempo de inicio
@@ -179,6 +197,7 @@ bool gpsAcquireSatellites() {
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
 
   gps = TinyGPSPlus();  // Reset the GPS
+  gsaFixMode.begin(gps, "GPGSA", 2);   // must be re-registered after the reset (GSA field 2 = fix mode)
   delay(10);
   configGPS();
   int gpsState = 0;
@@ -280,6 +299,10 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
 
   if (gpsFix) {
     SerialPrintDebugln("GPS acquiring data------>DONE");
+    // Ground truth for the 2D configuration: 2 = 2D fix, 3 = 3D fix.
+    if (gsaFixMode.isValid()) {
+      writeLogFile("GPS fix mode (NMEA GSA): " + String(gsaFixMode.value()) + "  (2 = 2D, 3 = 3D)");
+    }
   } else {
     SerialPrintDebugln("GPS acquiring data------TIMEOUT");
   }

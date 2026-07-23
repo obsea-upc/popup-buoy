@@ -1,7 +1,10 @@
 #pragma once
 #include <Arduino.h>
 
-// Send the UBX CFG-NAV5 config to the GPS (2D fix, airborne <1g dynamic model).
+// Open the GPS serial port (larger RX buffer than the library default, see gps.cpp).
+void gpsSerialBegin();
+
+// Configure the receiver (sea dynamic model, 2D-only fix) and feed it warm-start hints.
 void configGPS();
 
 // Quick check (30 s) for any satellite in view. Returns true on first satellite seen.
