@@ -49,6 +49,7 @@ FUTURE IMPROVEMENTS
 #include <Wire.h>
 #include <FastCRC.h>
 #include "previpass.h"
+#include <vector>
 
 
 #define s(x) String(x)
@@ -138,9 +139,11 @@ FUTURE IMPROVEMENTS
   int year_lander, month_lander, day_lander, hour_lander, minute_lander, second_lander;
   int syncTime;
   int fileBlinkLed = 0;
+  volatile bool alarmTriggered = false;  // set by onAlarm() ISR, handled in loop()
 
 //------ Definitions for time external RTC + ntp server  ---------------------------------------------------------------
   RTC_DS3231 rtcExt;
+  void IRAM_ATTR onAlarm();
 
 //------ Configuration of the NTP server -------------------------------------------------------------------------------
   const char *ntpServer = "pool.ntp.org";
@@ -437,6 +440,12 @@ void setup() {
 }
 //------- MAIN LOOP --------------------------------------------------------------------------------------
 void loop() {
+
+  if (alarmTriggered) {
+    alarmTriggered = false;
+    rtcExt.clearAlarm(1);
+    SerialPrintDebugln("Alarm occured!");
+  }
 
   writeLogFile("-----------------//Rebooting\\\\--------------------- ");
 
@@ -940,10 +949,10 @@ void loop() {
 
           int ret = tryUploadDataToUSV();
           if (ret == 0) {
-            // Upload data sucess, move to state 4
-            changeStateTo(4);
+            // Upload data success — stay in state 6, sleep 1 minute, then retry.
+            changeStateTo(6);
             writeLogFile("Entering Sleep mode");
-            SleepModeSequence(hoursBeforeNextStatellite, minutesBeforeNextStatellite, secondsBeforeNextStatellite, 0);
+            SleepModeSequence(0, 1, 0, 0);
             delay(10);
           }
         }
@@ -1347,8 +1356,8 @@ void goToSleepRTC_abs(int8_t sleepingHours) {
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_34, 0);  // pin para la alarma del RTC
   esp_deep_sleep_start();
 }
-void onAlarm() {
-  SerialPrintDebugln("Alarm occured!");
+void IRAM_ATTR onAlarm() {
+  alarmTriggered = true;
 }
 void ConnectPeripherals(bool activateRelay, int PRelay) {
   #ifdef DISCONNECT_PHER
@@ -2994,34 +3003,73 @@ bool getUploadPermission() {
 }
 
 // Builds JSON manifest of SD files and sends PUT /filelist/<id>.
-// Fills wantedOut[] with basenames the server wants; returns count or -1 on error.
-// sdPaths[] is filled in parallel with the full SD path for each offered file.
-int sendManifestAndGetWantedFiles(String* wantedOut, String* sdPathsOut, int maxWanted) {
-  // Candidate SD files to offer
-  const int N_CANDIDATES = 3;
-  static String candidates[N_CANDIDATES];  // static: lives in BSS, not stack
-  candidates[0] = String(GPSfilename);
-  candidates[1] = String(Log_filename);
-  if (SD_data_filename != NULL) {
-    candidates[2] = String(SD_data_filename);
-  } else {
-    candidates[2] = "";
+// Fills wantedOut with basenames the server wants; returns count or -1 on error.
+// sdPathsOut is filled in parallel with the full SD path for each offered file.
+// No fixed cap on file count — candidates/wanted lists grow on the heap, bounded
+// only by whatever's actually free at upload time (this board has no PSRAM).
+int sendManifestAndGetWantedFiles(std::vector<String>& wantedOut, std::vector<String>& sdPathsOut) {
+  // Candidate SD files to offer: every regular file anywhere on the card,
+  // found by walking the directory tree (not just SD root — images and the
+  // lander-instrument data file live under subfolders like /PopUpBuoy_<id>/).
+  std::vector<String> candidates;
+
+  // Iterative walk (explicit stack, not recursion — ESP32 loopTask stack is
+  // small and this file already avoids recursion for the same reason).
+  // Directory *depth* is kept bounded (unlike file count) — real folder
+  // nesting doesn't grow with how many files/images you have.
+  const int MAX_DIR_DEPTH = 16;
+  static String dirStack[MAX_DIR_DEPTH];
+  int stackTop = 0;
+  dirStack[stackTop++] = "/";
+
+  while (stackTop > 0) {
+    String dirPath = dirStack[--stackTop];
+    String dirPrefix = dirPath.endsWith("/") ? dirPath : dirPath + "/";
+    File dir = SD.open(dirPath.c_str());
+    if (!dir) continue;
+    File entry = dir.openNextFile();
+    while (entry) {
+      // entry.name() is only reliably a bare basename for nested entries —
+      // at root it happens to double as a root-relative path too, which is
+      // how this silently passed testing there. Always rebuild the path
+      // from the parent we're actually iterating, don't trust entry.name()
+      // to already be reopenable on its own.
+      String rawName = String(entry.name());
+      int lastSlash = rawName.lastIndexOf('/');
+      String baseName = (lastSlash >= 0) ? rawName.substring(lastSlash + 1) : rawName;
+      String entryPath = dirPrefix + baseName;
+      if (entry.isDirectory()) {
+        if (stackTop < MAX_DIR_DEPTH) {
+          dirStack[stackTop++] = entryPath;
+        } else {
+          writeLogFile("SD scan: max directory depth reached, skipping " + entryPath);
+        }
+      } else {
+        candidates.push_back(entryPath);
+      }
+      entry.close();
+      entry = dir.openNextFile();
+    }
+    if (entry) entry.close();
+    dir.close();
   }
+  writeLogFile("SD scan: found " + String(candidates.size()) + " file(s)");
 
   // Build JSON body manually (no ArduinoJson dependency)
   String body = "{\"files\":[";
   bool first = true;
-  for (int i = 0; i < N_CANDIDATES; i++) {
+  for (size_t i = 0; i < candidates.size(); i++) {
     if (candidates[i].length() == 0) continue;
     File f = SD.open(candidates[i].c_str(), FILE_READ);
     if (!f) continue;
     size_t sz = f.size();
     f.close();
-    // Basename = everything after last '/'
-    int slash = candidates[i].lastIndexOf('/');
-    String bn = (slash >= 0) ? candidates[i].substring(slash + 1) : candidates[i];
+    // Offer the SD-relative PATH (leading '/' stripped), not the basename:
+    // the server mirrors the tree and dedupes by path, so files with the
+    // same name in different folders no longer collide/overwrite.
+    String rel = candidates[i].startsWith("/") ? candidates[i].substring(1) : candidates[i];
     if (!first) body += ",";
-    body += "{\"name\":\"" + bn + "\",\"size\":" + String(sz) + "}";
+    body += "{\"name\":\"" + rel + "\",\"size\":" + String(sz) + "}";
     first = false;
   }
   body += "]}";
@@ -3039,38 +3087,36 @@ int sendManifestAndGetWantedFiles(String* wantedOut, String* sdPathsOut, int max
   String resp = http.getString();
   http.end();
 
-  // Parse {"tobesent": ["GPS_track.csv", "LogFile.txt"]}
+  // Parse {"tobesent": ["GPS_track.csv", "PopUpBuoy_1/img.png", ...]}
+  // Entries are SD-relative paths (they echo back what the manifest offered).
   int arrayStart = resp.indexOf('[');
   int arrayEnd   = resp.indexOf(']');
   if (arrayStart < 0 || arrayEnd < 0) return 0;
 
   String arr = resp.substring(arrayStart + 1, arrayEnd);
-  int n = 0;
   int pos = 0;
-  while (pos < (int)arr.length() && n < maxWanted) {
+  while (pos < (int)arr.length()) {
     int q1 = arr.indexOf('"', pos);
     if (q1 < 0) break;
     int q2 = arr.indexOf('"', q1 + 1);
     if (q2 < 0) break;
-    String bn = arr.substring(q1 + 1, q2);
-    // Resolve full SD path from basename
-    String fullPath = "";
-    for (int i = 0; i < N_CANDIDATES; i++) {
-      int sl = candidates[i].lastIndexOf('/');
-      String cbn = (sl >= 0) ? candidates[i].substring(sl + 1) : candidates[i];
-      if (cbn == bn) { fullPath = candidates[i]; break; }
-    }
-    wantedOut[n]   = bn;
-    sdPathsOut[n]  = fullPath;
-    n++;
+    String rel = arr.substring(q1 + 1, q2);
+    // The relative path prefixed with '/' IS the SD path — no basename
+    // search needed (and no ambiguity when names repeat across folders).
+    wantedOut.push_back(rel);
+    sdPathsOut.push_back("/" + rel);
     pos = q2 + 1;
   }
-  return n;
+  return (int)wantedOut.size();
 }
 
 // FTP-uploads each file from SD to the BlueBoat server.
+// `basenames` holds SD-relative paths (e.g. "PopUpBuoy_1/img.png"); STOR with
+// a relative path lands in the matching subfolder under /<idBuoy> — the server
+// pre-creates those directories at /filelist time, so no MKD is needed here.
 // Returns number of files successfully uploaded.
-int uploadFilesViaFTP(String* sdPaths, String* basenames, int nFiles) {
+int uploadFilesViaFTP(std::vector<String>& sdPaths, std::vector<String>& basenames) {
+  size_t nFiles = sdPaths.size();
   char uploadDir[16];
   snprintf(uploadDir, sizeof(uploadDir), "/%d", idBuoy);
 
@@ -3098,7 +3144,16 @@ int uploadFilesViaFTP(String* sdPaths, String* basenames, int nFiles) {
   int uploaded = 0;
   static uint8_t buf[512];
 
-  for (int i = 0; i < nFiles; i++) {
+  for (size_t i = 0; i < nFiles; i++) {
+    // WriteData/NewFile/CloseFile return void — isConnected() is the only
+    // signal this library gives for a dropped session. Without this check,
+    // a connection lost partway through a long batch would silently count
+    // every remaining file as "uploaded" without sending any of them.
+    if (!ftpUp->isConnected()) {
+      writeLogFile("FTP upload: connection lost after " + String(uploaded) + "/" +
+                    String(nFiles) + " files — stopping, remainder will retry next cycle");
+      break;
+    }
     if (sdPaths[i].length() == 0) {
       writeLogFile("No SD path for " + basenames[i] + " — skipping");
       continue;
@@ -3179,11 +3234,10 @@ int tryUploadDataToUSV() {
   }
   writeLogFile("tryUploadDataToUSV: permission granted");
 
-  // Step 4: File manifest
-  const int MAX_UPLOAD_FILES = 8;
-  static String wantedBasenames[MAX_UPLOAD_FILES];  // static: BSS, not stack
-  static String wantedSDPaths[MAX_UPLOAD_FILES];
-  int nWanted = sendManifestAndGetWantedFiles(wantedBasenames, wantedSDPaths, MAX_UPLOAD_FILES);
+  // Step 4: File manifest — no fixed cap, grows on the heap to fit whatever's on the card.
+  std::vector<String> wantedBasenames;
+  std::vector<String> wantedSDPaths;
+  int nWanted = sendManifestAndGetWantedFiles(wantedBasenames, wantedSDPaths);
   if (nWanted < 0) {
     writeLogFile("tryUploadDataToUSV: manifest exchange failed");
     return -4;
@@ -3197,7 +3251,7 @@ int tryUploadDataToUSV() {
   }
 
   // Step 5: FTP upload
-  int uploaded = uploadFilesViaFTP(wantedSDPaths, wantedBasenames, nWanted);
+  int uploaded = uploadFilesViaFTP(wantedSDPaths, wantedBasenames);
   writeLogFile("tryUploadDataToUSV: uploaded " + String(uploaded) + "/" + String(nWanted) + " files");
 
   // Step 6: Confirm

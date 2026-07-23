@@ -5,6 +5,9 @@
 #ifdef WORK_office
   #define WIFI_SSID "OBSEA_BUOY_WiFi"  //this is the wifi for state 0 and 1 (lab)
   #define WIFI_PASS "sartisarti."
+#elif defined ESPAI_VELA
+  #define WIFI_SSID "MOVISTAR_7160"  //this is the wifi for state 0 and 1 (lab)
+  #define WIFI_PASS "uDGcMYtjywMG74KnjMKP"
 #elif defined WORK_home
   #define WIFI_SSID "Chu_Net"
   #define WIFI_PASS "RyC_84_Wosim"
@@ -20,7 +23,7 @@
 
 #endif
 
-#ifdef WORK_rasp   
+#ifdef WORK_rasp
   #define WIFI_SSID2 "pop-up-server-wlan2"  //this is the wifi for state 2 (ocean)
   #define WIFI_PASS2 "plome2023"
 #endif
