@@ -32,11 +32,29 @@ RTC_DATA_ATTR static double lastFixLat = 0.0;
 RTC_DATA_ATTR static double lastFixLon = 0.0;
 RTC_DATA_ATTR static bool   lastFixValid = false;
 
-// GPS time runs ahead of UTC by the accumulated leap seconds (18 s since Jan 2017).
-// Only used to build a coarse time hint, and we declare +/-30 s accuracy, so a future
-// leap second would not invalidate it.
-static const uint32_t GPS_UTC_LEAP_SECONDS = 18;
-static const uint32_t GPS_EPOCH_IN_UNIX    = 315964800UL;  // 1980-01-06 00:00:00 UTC
+// (lastFix* is still updated on every real fix: it costs nothing and is what we would feed back to
+//  the receiver as a warm-start hint once we know which protocol this module accepts.)
+
+#ifdef GPS_DEBUG_NMEA_GSA
+// TEMPORARY diagnostic: echo the raw GSA sentences so the fix mode can be read directly from
+// what the receiver actually sends (GSA field 2: 1 = no fix, 2 = 2D, 3 = 3D). Also tells us
+// whether the module emits GSA at all. Remove the #define in conf.h to switch it off.
+static void debugEchoGsa(char c) {
+  static char line[96];
+  static uint8_t n = 0;
+  if (c == '\n' || c == '\r') {
+    if (n > 6) {
+      line[n] = '\0';
+      if (strstr(line, "GSA")  != NULL ||
+          strstr(line, "PCAS") != NULL ||
+          strstr(line, "TXT")  != NULL) SerialPrintDebugln(String("NMEA> ") + line);
+    }
+    n = 0;
+  } else if (n < sizeof(line) - 1) {
+    line[n++] = c;
+  }
+}
+#endif
 
 // Fix mode reported by the receiver in the NMEA GSA sentence: 1 = no fix, 2 = 2D, 3 = 3D.
 // This is the ground truth for whether the 2D configuration actually took effect.
@@ -49,131 +67,37 @@ void gpsSerialBegin() {
   gpsSerial.begin(GPSBaud, SWSERIAL_8N1, RXPin_GPS, TXPin_GPS, false, 256);
 }
 
-// Send a UBX frame, computing the 8-bit Fletcher checksum over class/id/length/payload.
-// (The receiver silently discards any frame whose checksum or declared length is wrong.)
-static void sendUBX(uint8_t msgClass, uint8_t msgId, const uint8_t *payload, uint16_t len) {
-  uint8_t header[6] = { 0xB5, 0x62, msgClass, msgId, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8) };
-  uint8_t ckA = 0, ckB = 0;
-  for (uint8_t i = 2; i < 6; i++) { ckA += header[i]; ckB += ckA; }   // checksum skips the 2 sync bytes
-  for (uint16_t i = 0; i < len; i++) { ckA += payload[i]; ckB += ckA; }
-
-  gpsSerial.write(header, sizeof(header));
-  gpsSerial.write(payload, len);
-  gpsSerial.write(ckA);
-  gpsSerial.write(ckB);
-}
-
-// Wait briefly for the receiver's UBX-ACK-ACK for a configuration message. Used both to retry a
-// lost configuration and to report in the log whether it was accepted (a malformed frame, or one
-// whose ACK we missed because the RX buffer overflowed, produces no match).
-static bool waitForUbxAck(uint8_t msgClass, uint8_t msgId, uint16_t timeoutMs) {
-  uint8_t expected[10] = { 0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, msgClass, msgId, 0, 0 };
-  uint8_t ckA = 0, ckB = 0;
-  for (uint8_t i = 2; i < 8; i++) { ckA += expected[i]; ckB += ckA; }
-  expected[8] = ckA; expected[9] = ckB;
-
-  uint8_t idx = 0;
-  unsigned long start = millis();
-  while (millis() - start < timeoutMs) {
-    if (gpsSerial.available()) {
-      uint8_t b = gpsSerial.read();
-      if (b == expected[idx]) {
-        if (++idx == sizeof(expected)) return true;   // complete ACK-ACK for this message
-      } else {
-        idx = (b == 0xB5) ? 1 : 0;                    // resync on a new frame start
-      }
-    }
-  }
-  return false;
-}
-
-// Feed the receiver a coarse time (from the DS3231) and our last known position, so it can
-// warm-start instead of cold-starting after the relay has powered it down. Both hints are
-// optional and are sent with deliberately loose accuracies: they only narrow the search, and
-// if one turns out to be inconsistent the receiver just falls back to a normal acquisition.
-static void sendGpsAiding() {
-  uint8_t ini[48] = { 0 };   // UBX-AID-INI payload is exactly 48 bytes
-  uint32_t flags = 0;
-
-  // --- position hint: last fix, carried across deep sleep in RTC memory ---
-  if (lastFixValid) {
-    int32_t lat = (int32_t)(lastFixLat * 1e7);   // degrees * 1e-7
-    int32_t lon = (int32_t)(lastFixLon * 1e7);
-    uint32_t posAcc = 100000;                    // 1 km in cm: loose on purpose (the buoy drifts)
-    memcpy(&ini[0],  &lat, 4);
-    memcpy(&ini[4],  &lon, 4);
-    memcpy(&ini[12], &posAcc, 4);                // ecefZOrAlt (offset 8) stays 0 and is flagged invalid
-    flags |= 0x01;   // position valid
-    flags |= 0x20;   // position given as lat/lon/alt
-    flags |= 0x40;   // altitude invalid
-  }
-
-  // --- time hint: only when the RTC is trustworthy ---
-  DateTime now = rtcExt.now();
-  if (!rtcExt.lostPower() && now.year() >= 2025) {
-    uint32_t gpsSeconds = (uint32_t)(now.unixtime() - GPS_EPOCH_IN_UNIX + GPS_UTC_LEAP_SECONDS);
-    uint16_t week  = (uint16_t)(gpsSeconds / 604800UL);
-    uint32_t towMs = (gpsSeconds % 604800UL) * 1000UL;
-    uint32_t tAccMs = 30000;                     // +/-30 s: an honest, coarse hint
-    memcpy(&ini[18], &week, 2);
-    memcpy(&ini[20], &towMs, 4);
-    memcpy(&ini[28], &tAccMs, 4);
-    flags |= 0x02;   // time valid
-  }
-
-  if (flags == 0) return;                        // neither hint available -> nothing to send
-  memcpy(&ini[44], &flags, 4);
-  sendUBX(0x0B, 0x01, ini, sizeof(ini));         // class 0x0B (AID), id 0x01 (INI)
-
-  #ifdef SERIAL_DEBUG
-    SerialPrintDebugln("GPS aiding sent (flags 0x" + String(flags, HEX) + ")");
-  #endif
+// Send an NMEA sentence with its checksum: sendNmea("PCAS06,0") -> "$PCAS06,0*1B\r\n".
+// Cheap "NEO-6M" modules are often CASIC/AT6558 based and are configured with these proprietary
+// $PCAS sentences rather than with u-blox UBX frames.
+static void sendNmea(const char *body) {
+  uint8_t cs = 0;
+  for (const char *p = body; *p; p++) cs ^= (uint8_t)*p;
+  char sentence[64];
+  snprintf(sentence, sizeof(sentence), "$%s*%02X\r\n", body, cs);
+  gpsSerial.print(sentence);
 }
 
 void configGPS() {
-  // UBX-CFG-NAV5: sea dynamic model + 2D-only fix at sea level.
-  // A surface buoy never needs altitude, and a 2D fix only needs 3 satellites instead of 4,
-  // so it locks faster and copes better with waves blocking part of the sky.
-  uint8_t nav5[36] = { 0 };                 // payload must be exactly 36 bytes
-  nav5[0]  = 0x05; nav5[1] = 0x00;          // mask: apply dynModel (bit0) + fixMode/fixedAlt (bit2)
-  nav5[2]  = 5;                             // dynModel = 5 (Sea)
-  nav5[3]  = 1;                             // fixMode  = 1 (2D only)
-                                            // fixedAlt (offset 4..7) = 0 -> sea level
-  nav5[8]  = 0x10; nav5[9] = 0x27;          // fixedAltVar = 10000 (1 m^2), u-blox default
-  nav5[12] = 5;                             // minElev = 5 deg
-  nav5[14] = 0xFA; nav5[15] = 0x00;         // pDop = 25.0
-  nav5[16] = 0xFA; nav5[17] = 0x00;         // tDop = 25.0
-  nav5[18] = 0x64; nav5[19] = 0x00;         // pAcc = 100 m
-  nav5[20] = 0x2C; nav5[21] = 0x01;         // tAcc = 300 m
-  nav5[23] = 60;                            // dgpsTimeOut, u-blox default
-
-  // Send it and confirm with the receiver's ACK, retrying a couple of times: the ACK is only
-  // 10 bytes and can be lost in the NMEA stream, and a lost configuration is worth retrying.
-  bool acked = false;
-  for (uint8_t attempt = 0; attempt < 3 && !acked; attempt++) {
-    while (gpsSerial.available()) gpsSerial.read();   // drop the NMEA backlog so the ACK arrives first
-    sendUBX(0x06, 0x24, nav5, sizeof(nav5));          // class 0x06 (CFG), id 0x24 (NAV5)
-    acked = waitForUbxAck(0x06, 0x24, 300);
-  }
-
-  #ifdef SERIAL_DEBUG
-    if (acked) {
-      SerialPrintDebugln("GPS CFG-NAV5 acknowledged (Sea model, 2D fix)");
-    } else {
-      SerialPrintDebugln("WARNING: no ACK for GPS CFG-NAV5 after 3 attempts");
-    }
+  // This receiver is NOT a u-blox: it reports $GNGSA with an NMEA 4.1 systemId field (GPS + BeiDou)
+  // and never acknowledged UBX, so the previous UBX-CFG-NAV5 / AID-INI path was dead weight (it also
+  // cost ~0.9 s per acquisition in ACK retries) and has been removed.
+  // Cheap multi-GNSS modules sold as "NEO-6M" are usually CASIC/AT6558 based; probe for that with a
+  // $PCAS version query so we know which protocol we can actually configure it with.
+  #ifdef GPS_DEBUG_NMEA_GSA
+    while (gpsSerial.available()) gpsSerial.read();   // clear the backlog so the reply is easy to spot
+    sendNmea("PCAS06,0");                             // CASIC product/version query
+    SerialPrintDebugln("GPS: sent $PCAS06,0 chipset probe");
   #endif
 
-  sendGpsAiding();   // warm-start hints (AID-INI is not acknowledged by the receiver)
-
-  delay(500);  // Espera para permitir que el GPS procese la configuración
+  delay(200);  // let the receiver settle before we start parsing
 }
 
 bool gpsAcquireSatellites() {
   ConnectPeripherals(true, GPS_KIM);
   gpsSerialBegin();
   gps = TinyGPSPlus();  // Reset the GPS
-  gsaFixMode.begin(gps, "GPGSA", 2);   // must be re-registered after the reset (GSA field 2 = fix mode)
+  gsaFixMode.begin(gps, "GNGSA", 2);   // re-register after the reset. This module emits GNGSA (multi-GNSS), not GPGSA
   delay(10);
   configGPS();
   unsigned long startTime = millis();  // Marca el tiempo de inicio
@@ -197,7 +121,7 @@ bool gpsAcquireSatellites() {
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
 
   gps = TinyGPSPlus();  // Reset the GPS
-  gsaFixMode.begin(gps, "GPGSA", 2);   // must be re-registered after the reset (GSA field 2 = fix mode)
+  gsaFixMode.begin(gps, "GNGSA", 2);   // re-register after the reset. This module emits GNGSA (multi-GNSS), not GPGSA
   delay(10);
   configGPS();
   int gpsState = 0;
@@ -228,7 +152,11 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
     #endif
     //SerialPrintDebugln("GPS acquiring data------>");
     while (gpsSerial.available() > 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
-      if (gps.encode(gpsSerial.read())) {
+      char nmeaChar = gpsSerial.read();
+      #ifdef GPS_DEBUG_NMEA_GSA
+        debugEchoGsa(nmeaChar);
+      #endif
+      if (gps.encode(nmeaChar)) {
 
         SerialPrintDebug(F("Location: "));
         if (gps.location.isValid()) {

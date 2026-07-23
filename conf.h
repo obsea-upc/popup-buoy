@@ -37,6 +37,7 @@ inline const char* stateName(int s) {
 #define TEST_FORCE_GPS_VILANOVA_PB2  // Test aid (permanent): tap PB_2 during the GPS search to inject a Vilanova i la Geltru fix from the RTC, so the Surface/SPP path can be exercised indoors
 
 ///------ OPTIONS TO DEBUG
+#define GPS_DEBUG_NMEA_GSA  // TEMPORARY: echo raw NMEA GSA sentences to read the fix mode (2 = 2D, 3 = 3D)
 #define SERIAL_DEBUG  // comment line to disable Serial prints
 #define SERIAL_DEBUG_BAUDRATE 115200
 
