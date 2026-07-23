@@ -34,7 +34,7 @@ inline const char* stateName(int s) {
 ////----- TEST PARAMETERS
 
 #define INITIAL_STATE ST_CONFIG
-#define TEST_FORCE_GPS_VILANOVA_PB2  // TEMP bench test: tap PB_2 during GPS search to fake a Vilanova i la Geltru fix (comment out before deployment)
+#define TEST_FORCE_GPS_VILANOVA_PB2  // Test aid (permanent): tap PB_2 during the GPS search to inject a Vilanova i la Geltru fix from the RTC, so the Surface/SPP path can be exercised indoors
 
 ///------ OPTIONS TO DEBUG
 #define SERIAL_DEBUG  // comment line to disable Serial prints
@@ -70,8 +70,7 @@ inline const char* stateName(int s) {
 #define DISCONNECT_PHER  //Disconnect KIM and GPS between transmissions
 
 //------ Definition ADC read
-#define ADC_PIN 36  
-#define WORK_ADC
+#define ADC_PIN 36
 //#define BAT_CRIT_LEVEL 3.5
 
 //------ Definition for Sleep mode and parameters

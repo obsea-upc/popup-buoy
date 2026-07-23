@@ -4,7 +4,6 @@
 #include "power_sleep.h"    // for goToSleep
 #include "eeprom_store.h"   // for eepromReadState
 #include "KIM.h"
-#include <FastCRC.h>
 #include <SD.h>
 
 // Objects/data owned by other modules.
@@ -88,7 +87,6 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
   char maskedData[25];
   char hex_latitude[9], hex_longitude[9];
   char hex_epochTime[9];
-  char hex_crc[3];
 
   if (gpsLat == 200 && gpsLong == 200){  //means GPS is not fixed
 
@@ -119,15 +117,9 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
   //append all the informations
   sprintf(maskedData, "%s%s%s", hex_latitude, hex_longitude, hex_epochTime);
 
-  #ifdef WORK_ADC
-    sprintf(kineisMessage, "%s%s", maskedData, ADCreadHex);
-  #else
-    //calculate CRC8
-    FastCRC8 CRC8;
-    uint8_t crc = CRC8.smbus((uint8_t *)maskedData, 24);
-    sprintf(hex_crc, "%02lX", (unsigned long)crc);
-    sprintf(kineisMessage, "%s%s", maskedData, hex_crc);
-  #endif
+  // Append the battery byte. No CRC is computed here: the module always runs in standard
+  // message format (AFMT=1,16,32), where Kineis puts the CRC in the message header itself.
+  sprintf(kineisMessage, "%s%s", maskedData, ADCreadHex);
 
   writeLogFile("Message to transmitt kineisMessage: ");
   writeLogFile(kineisMessage);

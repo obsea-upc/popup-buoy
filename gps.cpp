@@ -83,8 +83,9 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
 
   while (gpsState == 0 && millis() < (maxGPSTimeout + initialTime) && digitalRead(PB_1) == true) {
     #ifdef TEST_FORCE_GPS_VILANOVA_PB2
-      // === TEMPORARY BENCH-TEST CRUTCH === press PB_2 to fake a GPS fix indoors so the Surface/SPP path can run.
-      // Injects Vilanova i la Geltru coordinates and takes the time from the RTC. Remove (comment the #define in conf.h) before deployment.
+      // === TEST AID (permanent) === press PB_2 to inject a GPS fix indoors so the Surface/SPP path can run.
+      // Uses Vilanova i la Geltru coordinates and takes the time from the RTC. Harmless in the field:
+      // it only triggers on a deliberate button press. Toggle with TEST_FORCE_GPS_VILANOVA_PB2 in conf.h.
       if (digitalRead(PB_2) == false) {
         gpsLat  = 41.2241;   // Vilanova i la Geltru latitude (N)
         gpsLong = 1.7260;    // Vilanova i la Geltru longitude (E)
