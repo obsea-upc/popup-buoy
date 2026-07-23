@@ -949,10 +949,11 @@ void loop() {
 
           int ret = tryUploadDataToUSV();
           if (ret == 0) {
-            // Upload data success — stay in state 6, sleep 1 minute, then retry.
+            // Upload data success — stay in state 6, sleep 4 minutes, then run
+            // the full upload cycle again (repeated full-transfer testing).
             changeStateTo(6);
             writeLogFile("Entering Sleep mode");
-            SleepModeSequence(0, 1, 0, 0);
+            SleepModeSequence(0, 4, 0, 0);
             delay(10);
           }
         }
