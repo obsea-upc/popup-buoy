@@ -50,6 +50,7 @@ FUTURE IMPROVEMENTS
 #include <FastCRC.h>
 #include "previpass.h"
 #include <vector>
+#include <algorithm>
 
 
 #define s(x) String(x)
@@ -171,6 +172,15 @@ FUTURE IMPROVEMENTS
   const int ADC_resolution = 8; // Resolución del ADC en bits (8 bits)
   char ADCreadHex[3]; // Buffer para almacenar el valor hexadecimal
   float Vin_ADC;  //Battery voltage
+
+// Minimal in-memory tree used only to pretty-print the FTP upload manifest —
+// defined here (not next to its use) because arduino-cli's auto-generated
+// forward prototypes land above this struct, and reference it by name.
+struct TreeNode {
+  String name;
+  bool isFile;
+  std::vector<TreeNode> children;
+};
 
 //-------SETUP FUNTION -----------------------------------------------------------------------------------
 void setup() {
@@ -3111,6 +3121,53 @@ int sendManifestAndGetWantedFiles(std::vector<String>& wantedOut, std::vector<St
   return (int)wantedOut.size();
 }
 
+// Depth here is bounded by SD folder nesting (shallow in practice), so plain
+// recursion is fine, unlike the SD-card walk in sendManifestAndGetWantedFiles()
+// which needed an explicit stack.
+static void treeInsert(TreeNode& root, const String& path) {
+  TreeNode* node = &root;
+  int start = 0;
+  while (start <= (int)path.length()) {
+    int slash = path.indexOf('/', start);
+    bool isLeaf = (slash < 0);
+    String part = isLeaf ? path.substring(start) : path.substring(start, slash);
+    TreeNode* child = nullptr;
+    for (auto& c : node->children) {
+      if (c.name == part && c.isFile == isLeaf) { child = &c; break; }
+    }
+    if (!child) {
+      node->children.push_back(TreeNode{part, isLeaf, {}});
+      child = &node->children.back();
+    }
+    node = child;
+    if (isLeaf) break;
+    start = slash + 1;
+  }
+}
+
+static void treePrint(TreeNode& node, const String& prefix) {
+  for (size_t i = 0; i < node.children.size(); i++) {
+    bool last = (i == node.children.size() - 1);
+    TreeNode& c = node.children[i];
+    writeLogFile(prefix + (last ? "`-- " : "|-- ") + c.name + (c.isFile ? "" : "/"));
+    if (!c.isFile) {
+      treePrint(c, prefix + (last ? "    " : "|   "));
+    }
+  }
+}
+
+// Logs `basenames` as a directory tree instead of one line per file, so a
+// manifest of dozens of files takes a handful of log lines instead of one
+// per entry.
+static void logUploadManifestTree(std::vector<String>& basenames) {
+  writeLogFile("FTP upload: " + String(basenames.size()) + " file(s) to transfer:");
+  std::vector<String> sorted(basenames);
+  std::sort(sorted.begin(), sorted.end());
+  TreeNode root{"", false, {}};
+  for (auto& b : sorted) treeInsert(root, b);
+  treePrint(root, "");
+}
+
 // FTP-uploads each file from SD to the BlueBoat server.
 // `basenames` holds SD-relative paths (e.g. "PopUpBuoy_1/img.png"); STOR with
 // a relative path lands in the matching subfolder under /<idBuoy> — the server
@@ -3118,6 +3175,8 @@ int sendManifestAndGetWantedFiles(std::vector<String>& wantedOut, std::vector<St
 // Returns number of files successfully uploaded.
 int uploadFilesViaFTP(std::vector<String>& sdPaths, std::vector<String>& basenames) {
   size_t nFiles = sdPaths.size();
+  if (nFiles == 0) return 0;
+  logUploadManifestTree(basenames);
   char uploadDir[16];
   snprintf(uploadDir, sizeof(uploadDir), "/%d", idBuoy);
 
@@ -3143,6 +3202,7 @@ int uploadFilesViaFTP(std::vector<String>& sdPaths, std::vector<String>& basenam
   ftpUp->ChangeWorkDir(uploadDir);
 
   int uploaded = 0;
+  int lastLoggedDecile = 0;
   static uint8_t buf[512];
 
   for (size_t i = 0; i < nFiles; i++) {
@@ -3159,21 +3219,9 @@ int uploadFilesViaFTP(std::vector<String>& sdPaths, std::vector<String>& basenam
       writeLogFile("No SD path for " + basenames[i] + " — skipping");
       continue;
     }
-    // Grab the size, close, THEN log: writeLogFile appends to LogFile.txt,
-    // and when the file being uploaded IS LogFile.txt, appending while a
-    // read handle is open on it is undefined on the FAT driver. Never call
-    // writeLogFile while f is open.
     File f = SD.open(sdPaths[i].c_str(), FILE_READ);
     if (!f) {
       writeLogFile("Cannot open " + sdPaths[i] + " — skipping");
-      continue;
-    }
-    size_t fileSize = f.size();
-    f.close();
-    writeLogFile("FTP uploading " + basenames[i] + " (" + String(fileSize) + " B)");
-    f = SD.open(sdPaths[i].c_str(), FILE_READ);
-    if (!f) {
-      writeLogFile("Cannot reopen " + sdPaths[i] + " — skipping");
       continue;
     }
     ftpUp->InitFile("Type I");  // opens fresh PASV data connection for this STOR
@@ -3202,7 +3250,13 @@ int uploadFilesViaFTP(std::vector<String>& sdPaths, std::vector<String>& basenam
       writeLogFile("FTP session error on " + basenames[i] + " — not counted");
     } else {
       uploaded++;
-      writeLogFile("Uploaded " + basenames[i]);
+    }
+
+    // Report progress in 10% steps instead of one line per file.
+    int decile = (int)(((i + 1) * 10) / nFiles);
+    if (decile > lastLoggedDecile) {
+      lastLoggedDecile = decile;
+      writeLogFile(String(decile * 10) + "% of files transferred");
     }
   }
 
