@@ -34,6 +34,10 @@
 #define SECRET_FTP_SERVER_PASS "plome2023"  //set in the server "esp32"
 #define SECRET_FTP_SERVER_PORT 5000     //port on the http
 
+// FTP port for uploading files TO the BlueBoat USV (non-privileged, no root needed on the Jetson;
+// distinct from the lander's vsftpd download path). Used only by the USV upload module.
+#define SECRET_FTP_UPLOAD_PORT 2121
+
 //#define SECRET_FTP_SERVER_IP "192.168.0.36";
 //#define SECRET_FTP_SERVER_USER "matias"; //set in the server
 //#define SECRET_FTP_SERVER_PASS "matias"; //set in the server

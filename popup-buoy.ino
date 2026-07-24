@@ -32,6 +32,7 @@
 #include "wifi_http.h"
 #include "adc.h"
 #include "ftp_download.h"
+#include "usv_upload.h"
 #include "satellite_spp.h"
 #include "satellite_tx.h"
 #include "config.h"
@@ -757,6 +758,17 @@ void loop() {
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           writeLogFile("Sending updated GPS position");
           SendGPSMessage(timeSending);
+
+      // --- USV DATA UPLOAD --- offer SD data to a BlueBoat if one is in range
+          int ret = tryUploadDataToUSV();
+          if (ret == 0) {
+            // Upload confirmed. Stay in FRM (do NOT drop to DM) and sleep 4 min,
+            // then run the full upload cycle again — keeps offering the server
+            // anything new that accumulates while the buoy stays with the USV.
+            // sleepSecondsAndGoTo deep-sleeps (reboots), so it doesn't return.
+            writeLogFile("USV upload complete. Staying in FRM, sleeping 4 min before next cycle.");
+            sleepSecondsAndGoTo(4 * 60, ST_FRM);
+          }
         }
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
         runSatellitePassPrediction(false);

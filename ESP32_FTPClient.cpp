@@ -289,6 +289,10 @@ void ESP32_FTPClient::InitFile(const char* type) {
     if (tStr == NULL) {
       FTPdbgn(F("Bad PASV Answer"));
       FTPserialDebugln("fucked communication");// Stevie
+      // Control socket is being closed — flag the session as dead so callers
+      // (which can only observe isConnected()) don't keep issuing commands
+      // and falsely count transfers as done.
+      _isConnected = false;
       CloseConnection();
       return;
     }
@@ -305,6 +309,13 @@ void ESP32_FTPClient::InitFile(const char* type) {
   FTPdbgn(hiPort);
   if (dclient.connect(pasvServer, hiPort, timeout)) {
     FTPdbgn(F("Data connection established"));
+  }
+  else {
+    // Data connection failed: without this flag the caller would STOR into
+    // a void — WriteData silently writes to a dead socket and the file gets
+    // counted as uploaded even though nothing was sent.
+    FTPdbgn(F("Data connection FAILED"));
+    _isConnected = false;
   }
 }
 
