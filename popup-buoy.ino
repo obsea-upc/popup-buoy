@@ -752,7 +752,11 @@ void loop() {
         initTime = millis();
         timeSending = 30; //Sending just one repetition
         maxGPSTimeout = 60000; //here better 60
-        while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC > Bat_critlevel)){  //maxFRM en horas
+        // >= (not >) so the loop only leaves FRM when the battery is STRICTLY below critical,
+        // matching the post-loop check (else if Vin_ADC < Bat_critlevel -> LOWPWR). With > and
+        // Bat_critlevel=0, a single Vin_ADC==0 reading exited the loop, ran SPP and fell through to
+        // the "ERROR -> DM" branch (equality landed in the gap between > here and < there).
+        while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC >= Bat_critlevel)){  //maxFRM en horas
           adcAcquireData(ADCreadHex);
           gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
