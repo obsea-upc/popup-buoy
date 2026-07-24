@@ -170,10 +170,14 @@ void setup() {
         while (1) delay(10);
       }
 
-      if (rtcExt.lostPower()) {  // If RTC loses batery power update time with last compilation date time
-        // this will adjust to the date and time at compilation
-        rtcExt.adjust(DateTime(F(__DATE__), F(__TIME__)));
-        SerialPrintDebugln("time adjust");   //comment rtcExt.edjust and put here a print that should be adjust
+      if (rtcExt.lostPower()) {
+        // The oscillator stopped at some point (OSF set), so the kept time may be off. We deliberately
+        // do NOT write the compile time here: __DATE__/__TIME__ is the moment the firmware was built,
+        // which can be days or weeks stale, and adjust() would also clear OSF, making that stale value
+        // look valid and then get propagated. Keep whatever the RTC still holds -- the last NTP/lander
+        // sync -- and let the next NTP (CONFIG) or lander (SEABED) sync correct it. Only flag it here.
+        // OSF stays set on purpose, as a record, until a real sync clears it.
+        SerialPrintDebugln("WARNING: RTC reports lost power (OSF). Keeping last synced time; NOT writing compile time.");
       }
       //we don't need the 32K Pin, so disable it
       rtcExt.disable32K();
