@@ -73,8 +73,14 @@ bool KIM::set_sleepMode(bool mode) {
 
 #if softSerial
         new (kimSerial) SerialUART(RX_KIM, TX_KIM);  //Initialize UART
-#endif
         kimSerial->begin(KIMBaud);
+#else
+        // Pass the pins explicitly. begin(baud) alone relies on UART2's default RX/TX pins, which
+        // happened to be GPIO16/17 on ESP32 core 2.x but changed in core 3.x -- that silent change
+        // is what broke KIM comms on newer cores. Naming the pins makes it work on any core version
+        // and is a no-op on 2.0.14 (same pins it was already using).
+        kimSerial->begin(KIMBaud, SERIAL_8N1, RX_KIM, TX_KIM);
+#endif
 
         kimSerial->flush();                 //Clean TX buffer
         while (kimSerial->available() > 0)  //Clean RX buffer
