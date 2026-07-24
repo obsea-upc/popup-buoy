@@ -228,7 +228,7 @@ void setup() {
         SerialPrintDebug(".");
       }
       SerialPrintDebug("    IP address: ");
-      SerialPrintDebugln(WiFi.localIP());
+      SerialPrintDebugln(WiFi.localIP().toString());  // .toString() -> dotted form; without it the IPAddress decays to a raw uint32_t
 
       DateTime time = rtcExt.now();
       writeLogFile(time.timestamp(DateTime::TIMESTAMP_FULL));

@@ -330,8 +330,9 @@ bool connectToRaspWiFi() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    SerialPrintDebugln("Connected!");
-    writeLogFile("Connected to Pop-Up server WiFi");
+    String ip = WiFi.localIP().toString();  // .toString() -> dotted form; a bare IPAddress decays to a raw uint32_t
+    SerialPrintDebugln("Connected! IP address: " + ip);
+    writeLogFile("Connected to Pop-Up server WiFi, IP address: " + ip);
     return true;
   } else {
     SerialPrintDebugln("Not connected!");
