@@ -62,3 +62,14 @@ void satModuleEnd();
 // Name of the SD file mapping module IDs to module types, one "ID;TYPE" per
 // line (TYPE being KIM1 or ARR), e.g. "26423D4;KIM1" / "294847;ARR".
 extern const char *SD_satmodule_filename;
+
+// Radio configuration the Arribada is expected to be running: the Argos uplink
+// band (401.65 MHz +/- 30 kHz, where the KIM1 also sits), maximum power and the
+// same modulation. Compared as a substring of the module's AT+RCONF reply.
+//
+// The buoy only ever *checks* this and writes a log line if it differs. It does
+// not correct it, by design: AT+RCONF erases and reprograms the flash page that
+// also holds the device ID, address and secret key. Changing it is a deliberate
+// manual job (in practice, reflashing the module), not something firmware
+// should be doing on every wake.
+#define SAT_ARRIBADA_EXPECTED_RCONF "401620000,401680000,27,LDA2"

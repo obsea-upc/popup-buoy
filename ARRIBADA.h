@@ -59,6 +59,17 @@ class ARRIBADA {
   char* get_ID();
   char* get_SN();
 
+  // Reads the radio configuration: "+RCONF=<min_freq>,<max_freq>,<rf_level>,<modulation>".
+  //
+  // Read only on purpose. There is no setter here and there should not be one:
+  // AT+RCONF is not a RAM setting, it erases and reprograms the flash page that
+  // also holds the device ID, address and secret key. On the module measured
+  // here it fails outright with +ERROR=700 (flash error) and AT+SAVE_RCONF is a
+  // do-nothing stub in the vendor source, so the configuration can only be
+  // changed by reflashing the module's own firmware. The buoy checks it and
+  // complains in the log; a human fixes it.
+  char* get_RCONF();
+
   // Selects the Kineis MAC profile (AT+KMAC=<profile>).
   //
   // This is not optional and it is not persistent. The module boots with

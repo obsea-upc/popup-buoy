@@ -223,6 +223,19 @@ SatModuleType satModuleDetect() {
     Arribada.begin(KIMBaud, RX_KIM, TX_KIM);
     if (Arribada.check()) {
       extractID(Arribada.get_ID());
+
+      // Report the radio configuration, never change it. Writing AT+RCONF would
+      // erase and reprogram the flash page holding the ID, address and secret
+      // key; on the module measured here it is refused anyway (+ERROR=700), so
+      // correcting it means reflashing the module by hand.
+      const char *rconf = Arribada.get_RCONF();
+      if (strstr(rconf, SAT_ARRIBADA_EXPECTED_RCONF) == nullptr) {
+        writeLogFile("ARRIBADA RCONF UNEXPECTED: " + String(rconf) +
+                     " - expected " + String(SAT_ARRIBADA_EXPECTED_RCONF) +
+                     ". Transmissions may not be received. Fix by hand; the firmware will not.");
+      } else {
+        writeLogFile("ARRIBADA RCONF OK: " + String(SAT_ARRIBADA_EXPECTED_RCONF));
+      }
     } else {
       Arribada.end();
       detectedType = SAT_UNKNOWN;

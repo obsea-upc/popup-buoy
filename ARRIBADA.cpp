@@ -237,6 +237,13 @@ char* ARRIBADA::get_SN() {
   return response;
 }
 
+char* ARRIBADA::get_RCONF() {
+  if (send_ATCommand("AT+RCONF=?", "+RCONF=") != OK_ARRIBADA) {
+    send_ATCommand("AT+RCONF?", "+RCONF=");
+  }
+  return response;
+}
+
 RetStatusARRIBADATypeDef ARRIBADA::set_KMAC(uint8_t profile) {
   snprintf(command, sizeof(command), "AT+KMAC=%u", (unsigned)profile);
   return send_ATCommand(command, nullptr, 5000);
