@@ -208,25 +208,31 @@ RetStatusARRIBADATypeDef ARRIBADA::send_ATCommand(
   return TIMEOUT_ARRIBADA;
 }
 
+// Note on syntax: the wiki writes the query form as "AT+FW?", but the firmware
+// measured here (5ad8cd5_Tx_gui_basic, Oct 2025) wants "AT+ID=?" and answers
+// +ERROR=1203 to "AT+ID?" - the same "=?" form the KIM1 uses. The "?" variants
+// are kept as a fallback in case another build flips it back.
+
 bool ARRIBADA::check() {
-  // The wiki documents "AT+PING?"; the shipped examples use "AT+PING=?". Accept
-  // either firmware by trying both before declaring the module absent.
-  if (send_ATCommand("AT+PING?", nullptr, 3000) == OK_ARRIBADA) {
+  // AT+ID is used rather than AT+PING because it is confirmed present on this
+  // firmware, while several documented commands (AT+RCONF, AT+LPM, AT+VERSION)
+  // come back as +ERROR=1203 on it.
+  if (send_ATCommand("AT+ID=?", "+ID=", 3000) == OK_ARRIBADA) {
     return true;
   }
   return send_ATCommand("AT+PING=?", nullptr, 3000) == OK_ARRIBADA;
 }
 
 char* ARRIBADA::get_ID() {
-  if (send_ATCommand("AT+ID?", "+ID=") != OK_ARRIBADA) {
-    send_ATCommand("AT+ID=?", "+ID=");
+  if (send_ATCommand("AT+ID=?", "+ID=") != OK_ARRIBADA) {
+    send_ATCommand("AT+ID?", "+ID=");
   }
   return response;
 }
 
 char* ARRIBADA::get_SN() {
-  if (send_ATCommand("AT+SN?", "+SN=") != OK_ARRIBADA) {
-    send_ATCommand("AT+SN=?", "+SN=");
+  if (send_ATCommand("AT+SN=?", "+SN=") != OK_ARRIBADA) {
+    send_ATCommand("AT+SN?", "+SN=");
   }
   return response;
 }

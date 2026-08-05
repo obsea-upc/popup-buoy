@@ -18,8 +18,11 @@ const char *SD_satmodule_filename = "/sat_transm.csv";
 static SatModuleType detectedType = SAT_UNKNOWN;
 static char moduleID[32] = "";
 
-// 23 bytes, the largest payload the Kineis standard format carries.
-#define SAT_MAX_HEX_PAYLOAD 46
+// Largest payload each module takes: 23 bytes for the Kineis standard format
+// on the KIM1, 24 bytes for LDA2/VLD on the Arribada.
+#define SAT_MAX_HEX_KIM      46
+#define SAT_MAX_HEX_ARRIBADA 48
+#define SAT_MAX_HEX_PAYLOAD  SAT_MAX_HEX_ARRIBADA
 
 // --------------------------------------------------------------------------
 // Helpers
@@ -89,38 +92,33 @@ static SatModuleType lookupIDinFile(const char *id) {
   return found;
 }
 
-// Pads a hex payload up to the next length the Kineis standard format accepts.
+// Zero-pads a hex payload for the Arribada, whose firmware pads nothing itself
+// and answers +ERROR=1100 on any length it does not accept.
 //
-// KIM1 Integration Manual v2.3 section 4.2.2 lists the only user-data sizes the
-// standard format (AT+AFMT=1,16,32) carries: 3, 7, 11, 15, 19 and 23 bytes,
-// i.e. 6, 14, 22, 30, 38 and 46 hex characters - the "6+8n" rule. Anything else
-// "will be zero-padded by the KIM1 until it reaches the next possible data
-// length value", and anything longer is truncated.
+// The two modules do not agree on which lengths are legal, and there is no
+// overlap to aim for:
+//   - KIM1, Kineis standard format (integration manual v2.3 section 4.2.2):
+//     3, 7, 11, 15, 19, 23 bytes = 6, 14, 22, 30, 38, 46 hex chars ("6+8n").
+//     Short payloads are zero-padded by the module up to the next entry.
+//   - Arribada: whole 4-byte words only, up to 24 bytes = multiples of 8 hex
+//     chars, 48 maximum ("8n"). Measured: it rejects 30 and 46.
 //
-// The ground segment decodes by received length (position-sized payload -> parse
-// lat/long/epoch, longer -> keep as raw data), so the Arribada has to put the
-// same sizes on the air as the KIM1 does. That means padding to this table and
-// not to a plain multiple of 8: a 26-char position message becomes 30 (15
-// bytes), not 32, and a 46-char data line is already the maximum and stays put.
+// 6+8n and 8n never coincide, so the two transmitters cannot put the same
+// length on the air. The buoy therefore sends each module the nearest size it
+// accepts and the ground segment learns both: a position message goes out as
+// 30 hex chars from a KIM1 and 32 from an Arribada, a data line as 46 and 48.
+// Exploring whether some other Arribada profile (AT+RCONF / AT+KMAC) can match
+// the Kineis table is left for later.
 //
-// Returns the padded length, or 0 if the payload is longer than the format
-// allows (better to log and skip than to let the module silently truncate).
-static const size_t SAT_VALID_HEX_LENGTHS[] = {6, 14, 22, 30, 38, 46};
-
-static size_t padToArgosLength(const char *in, char *out, size_t outSize) {
+// Returns the padded length, or 0 if the payload does not fit, which is worth
+// logging rather than letting the module silently truncate it.
+static size_t padForArribada(const char *in, char *out, size_t outSize) {
   if (in == nullptr || out == nullptr) return 0;
 
   size_t len = strlen(in);
-  size_t padded = 0;
+  size_t padded = ((len + 7) / 8) * 8;      // round up to a whole 4-byte word
 
-  for (size_t i = 0; i < sizeof(SAT_VALID_HEX_LENGTHS) / sizeof(SAT_VALID_HEX_LENGTHS[0]); i++) {
-    if (SAT_VALID_HEX_LENGTHS[i] >= len) {
-      padded = SAT_VALID_HEX_LENGTHS[i];
-      break;
-    }
-  }
-
-  if (padded == 0 || padded + 1 > outSize) return 0;
+  if (padded > SAT_MAX_HEX_ARRIBADA || padded + 1 > outSize) return 0;
 
   memcpy(out, in, len);
   for (size_t i = len; i < padded; i++) out[i] = '0';
@@ -167,32 +165,33 @@ SatModuleType satModuleDetect() {
 
   SerialPrintDebugln("Satellite module detection ---->");
 
-  // Ask the module to name itself rather than inferring from which commands it
-  // knows. Measured on a KIM1 (FW 2.1): "AT+FW=?" -> "+FW=KIM1_V2.1", and the
-  // Arribada answers its AT+FW with a bare git commit id. Two more obvious
-  // discriminators were tried first and both turned out to be wrong:
-  //   - AT+PING: the KIM1 answers "+OK" too (integration manual v2.3 section
-  //     3.3.3.b), so it does not single out the Arribada.
-  //   - the AT+ID reply format: KIM1 FW 2.1 answers "+ID=276f235", the same
-  //     "+ID=" shape as the Arribada, not the "+ID:28,..." older headers show.
-  char reply[64];
+  // Ask the module to name itself. Both firmwares answer AT+FW=? and only the
+  // KIM1 puts its own name in the reply, so one command separates them:
+  //   KIM1 FW 2.1: "+FW=KIM1_V2.1"
+  //   Arribada:    "+FW=5ad8cd5_Tx_gui_basic_Mp,v10.0.0_...,Oct 13 2025_08:10:51"
+  //
+  // Three more obvious-looking discriminators were tried and all three are
+  // wrong, measured on both modules:
+  //   - AT+PING is not Arribada-only; the KIM1 answers +OK (integration manual
+  //     v2.3 section 3.3.3.b).
+  //   - The AT+ID reply shape matches: KIM1 says "+ID=276f235", Arribada says
+  //     "+ID=294848". Not the "+ID:28,..." the old KIM.h comments describe.
+  //   - The "?" vs "=?" syntax split is the opposite way round from the
+  //     Arribada wiki: this firmware wants "AT+FW=?" and rejects "AT+FW?"
+  //     with +ERROR=1203, exactly like the KIM1.
+  char reply[96];   // the Arribada firmware string is long
 
   kimSerial.begin(KIMBaud, SERIAL_8N1, RX_KIM, TX_KIM);
   delay(50);
 
-  probeAT("AT+FW=?", reply, sizeof(reply), 1500);          // KIM1 syntax
-  if (strstr(reply, "KIM") != nullptr) {
-    detectedType = SAT_KIM1;
+  probeAT("AT+FW=?", reply, sizeof(reply), 1500);
+  if (strncmp(reply, "+FW=", 4) == 0) {
+    detectedType = (strstr(reply, "KIM") != nullptr) ? SAT_KIM1 : SAT_ARRIBADA;
   } else {
-    probeAT("AT+FW?", reply, sizeof(reply), 1500);         // Arribada syntax
-    if (strncmp(reply, "+FW=", 4) == 0 && strstr(reply, "KIM") == nullptr) {
-      detectedType = SAT_ARRIBADA;
-    } else {
-      // Last resort: AT+AFMT exists only on the KIM1; the Arribada answers
-      // +ERROR=1203 (unknown AT command).
-      probeAT("AT+AFMT=?", reply, sizeof(reply), 1500);
-      if (strncmp(reply, "+AFMT=", 6) == 0) detectedType = SAT_KIM1;
-    }
+    // Nothing sensible came back. AT+AFMT exists only on the KIM1 (the Arribada
+    // answers +ERROR=1203), so it is a decent second opinion.
+    probeAT("AT+AFMT=?", reply, sizeof(reply), 1500);
+    if (strncmp(reply, "+AFMT=", 6) == 0) detectedType = SAT_KIM1;
   }
 
   kimSerial.end();
@@ -326,27 +325,20 @@ bool satModuleSendData(const char *hexPayload) {
       // exact lengths (26 hex chars for a position, 46 for a data line) and
       // does its own zero-filling, so padding here would change the bits that
       // actually go on the air and the ground segment decodes.
-      if (len > SAT_MAX_HEX_PAYLOAD) {
-        writeLogFile("SAT MSG_ERR: payload too long (" + String(len) + " hex chars)");
+      if (len > SAT_MAX_HEX_KIM) {
+        writeLogFile("SAT MSG_ERR: payload too long for KIM1 (" + String(len) + " hex chars, max " + String(SAT_MAX_HEX_KIM) + ")");
         return false;
       }
       return KIM.send_data((char *)hexPayload, len) == OK_KIM;
 
     case SAT_ARRIBADA: {
-      // This firmware pads nothing: a payload whose length is not one the format
-      // accepts comes back as +ERROR=1100. Do the padding the KIM1 would have
-      // done, so both modules put the same sizes on the air and the ground
-      // segment can keep decoding by length, and so the SD files stay unedited.
-      char padded[SAT_MAX_HEX_PAYLOAD + 1];
-      size_t paddedLen = padToArgosLength(hexPayload, padded, sizeof(padded));
+      char padded[SAT_MAX_HEX_ARRIBADA + 1];
+      size_t paddedLen = padForArribada(hexPayload, padded, sizeof(padded));
       if (paddedLen == 0) {
-        writeLogFile("SAT MSG_ERR: payload too long (" + String(len) + " hex chars, max " + String(SAT_MAX_HEX_PAYLOAD) + ")");
+        writeLogFile("SAT MSG_ERR: payload too long for ARRIBADA (" + String(len) + " hex chars, max " + String(SAT_MAX_HEX_ARRIBADA) + ")");
         return false;
       }
       if (Arribada.send_data(padded, paddedLen) == OK_ARRIBADA) return true;
-      // Worth spelling out: if this turns out to be +ERROR=1100 the Arribada
-      // wants 4-byte-aligned payloads instead of the Kineis table, and the two
-      // modules cannot produce identical lengths. Needs a real Arribada to tell.
       writeLogFile("ARRIBADA MSG_ERR sending " + String(paddedLen) + " hex chars");
       return false;
     }

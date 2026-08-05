@@ -623,9 +623,9 @@ void loop() {
     case ST_DM:  //Surface (ocean surface routines)
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 4  ---
-      // --- CONFIGURING KIM  ---
+      // --- CONFIGURING THE SATELLITE MODULE  ---
         configureKIM();
-        writeLogFile("KIM power changed to 1000");
+        writeLogFile(String(satModuleName()) + " power changed to 1000");
       // --- READ EEPROM INFO ABOUT  AND NUMBER OF FILES IN DATAFILE AND THE ACTUAL RowProgress  ---
         Decimal_CoverageDuration = eepromReadCoverageDuration();  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
         SerialPrintDebugln(" Time of coverage from the comming satellite : " + String(Decimal_CoverageDuration) + String(" sec"));
@@ -679,7 +679,7 @@ void loop() {
         }
 
 
-        writeLogFile("End of KIM transmissions.");
+        writeLogFile("End of " + String(satModuleName()) + " transmissions.");
         delay(10);
 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
@@ -705,9 +705,9 @@ void loop() {
 
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 5  ---
-      // --- CONFIGURING KIM  ---
+      // --- CONFIGURING THE SATELLITE MODULE  ---
         configureKIM();
-        writeLogFile("KIM power changed to 1000");
+        writeLogFile(String(satModuleName()) + " power changed to 1000");
       // --- READ EEPROM INFO ABOUT DURATION ---
         Decimal_CoverageDuration = eepromReadCoverageDuration();  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
         SerialPrintDebugln(" Time of coverage from the comming satellite : " + String(Decimal_CoverageDuration) + String(" sec"));
@@ -732,7 +732,7 @@ void loop() {
       // --- SENDING MESSAGES PART --- this can be moved down
 
         SendGPSMessage(timeSending);   // No need for delay. If no Argoscoverage, don't care when its sent. If argos coverage, all time sending GPS data so also in the midle.
-        writeLogFile("End of KIM transmissions.");
+        writeLogFile("End of " + String(satModuleName()) + " transmissions.");
         delay(10);
 
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
@@ -751,7 +751,7 @@ void loop() {
     case ST_FRM:  //Fast Recovery Mode
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 6  ---
-      // --- CONFIGURING KIM  ---
+      // --- CONFIGURING THE SATELLITE MODULE  ---
         configureKIM();
       // --- SENDING REGULAR UPDATED  MESSAGES ---
         adcAcquireData(ADCreadHex);  //acquiring bat for the 1st time
