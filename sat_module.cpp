@@ -359,6 +359,12 @@ bool satModuleSendData(const char *hexPayload) {
       // refuses to transmit in that state (+ERROR=253), the setting does not
       // survive a power cut, and goToSleep() drops GPIO13 between messages -
       // so once per session is not enough, it has to be here.
+      //
+      // This does not wear the module's flash out: the fact that the setting is
+      // lost on power-down is precisely what shows it lives in RAM. Revisit if
+      // the module firmware is ever updated - a build that makes KMAC survive a
+      // power cycle is one that writes it to flash, and then this should happen
+      // once per power-up rather than once per message.
       if (Arribada.set_KMAC() != OK_ARRIBADA) {
         writeLogFile("ARRIBADA KMAC_ERR - transmission will be refused");
       }
