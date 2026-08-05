@@ -1,1 +1,6 @@
 desktop.ini
+
+# Hardware design files and vendor documentation - kept locally, not in the firmware repo
+hardware/
+ARRIBADA/
+KIM1 shield/

@@ -3,11 +3,10 @@
 #include "logging.h"
 #include "power_sleep.h"    // for goToSleep
 #include "eeprom_store.h"   // for eepromReadState
-#include "KIM.h"
+#include "sat_module.h"     // KIM1 / Arribada abstraction; nothing here talks to a driver directly
 #include <SD.h>
 
 // Objects/data owned by other modules.
-extern KIM KIM;
 extern int currentState;
 extern double gpsLat, gpsLong;
 extern uint32_t epochTime;
@@ -37,31 +36,32 @@ const char *SD_progress_filename = "/progressFile.txt";
 File datamsgSD;
 
 void configureKIM(){
-  SerialPrintDebugln("KIM Initial Setup ---->");
-  while (!KIM.check()) {
-    SerialPrintDebugln("Failed connexion to KIM module. Retriying in 3s...");
+  SerialPrintDebugln("Satellite module Initial Setup ---->");
+
+  // Works out whether a KIM1 or an Arribada wing is in the socket the first
+  // time it runs; afterwards it just returns the cached answer.
+  satModuleDetect();
+
+  while (!satModuleCheck()) {
+    SerialPrintDebugln("Failed connexion to satellite module. Retriying in 3s...");
     delay(1000);
   }
-  if(currentState != ST_FRM){  // all states except Fast Recovery Mode (6) transmit at PWR2
-    if (KIM.set_PWR(PWR2, strlen(PWR2)) == OK_KIM) {
-      writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
-    } else {
-      writeLogFile("Kim Configuration_ERR");
-    }
-    delay(delayKIM);
-  }else{
-    if (KIM.set_PWR(PWR3, strlen(PWR3)) == OK_KIM){
-      writeLogFile("KIM power changed to: " + String(KIM.get_PWR()));
-    } else {
-      writeLogFile("Kim Configuration_ERR");
-    }
-    delay(delayKIM);
-  }
-  delay(delayKIM);                    // IMPORTANT because by default AT+AFMT=0 and then it sends RAW messages
-  if (KIM.set_AFMT(AFMT, sizeof(AFMT) - 1) == OK_KIM) {
-    writeLogFile("Kim Configuration changed to AFMT");
+
+  // All states except Fast Recovery Mode (6) transmit at PWR2.
+  // On the Arribada this is a no-op: its firmware has no AT+PWR.
+  const char *power = (currentState != ST_FRM) ? PWR2 : PWR3;
+  if (satModuleSetPower(power)) {
+    writeLogFile(String(satModuleName()) + " power set to: " + String(power));
   } else {
-    writeLogFile("Kim Configuration_ERR");
+    writeLogFile("Sat Configuration_ERR (power)");
+  }
+  delay(delayKIM);
+
+  delay(delayKIM);                    // IMPORTANT because by default AT+AFMT=0 and then it sends RAW messages
+  if (satModuleSetFormat(AFMT)) {
+    writeLogFile("Sat Configuration changed to AFMT");
+  } else {
+    writeLogFile("Sat Configuration_ERR (format)");
   }
   delay(delayKIM);
 }
@@ -70,11 +70,11 @@ bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
     currentState = eepromReadState();
-    if (KIM.send_data(kineisMessage, sizeof(kineisMessage) - 1) == OK_KIM) {
+    if (satModuleSendData(kineisMessage)) {
       delay(INTERVAL_SEND_MS);
-      writeLogFile(" Kim MSG_OK");
+      writeLogFile(" " + String(satModuleName()) + " MSG_OK");
     } else {
-      writeLogFile(" Kim MSG_ERR");
+      writeLogFile(" " + String(satModuleName()) + " MSG_ERR");
     }
     goToSleep((waitRepeat-INTERVAL_SEND_MS)/1000);
   }
@@ -138,11 +138,11 @@ void SendGPSMessage(int timeSending) {
 
 void SendDataMessage() {
   writeLogFile("Sending : " + String(kineisdataMessage));
-  if (KIM.send_data(kineisdataMessage, sizeof(kineisdataMessage) - 1) == OK_KIM) {
+  if (satModuleSendData(kineisdataMessage)) {
     delay(INTERVAL_SEND_MS);
-    writeLogFile("Kim MSG_OK");
+    writeLogFile(String(satModuleName()) + " MSG_OK");
   } else {
-    writeLogFile("Kim MSG_ERR");
+    writeLogFile(String(satModuleName()) + " MSG_ERR");
   }
   goToSleep((INTERVAL_MS-INTERVAL_SEND_MS)/1000);
 }
@@ -268,7 +268,7 @@ void SendFileKim(int time_to_send) {
             nbrSendingProgress = 0;
             SerialPrintDebugln(" The line to send is : " + String(new_line));
             strncpy(kineisdataMessage, new_line, sizeof(kineisdataMessage) - 1);
-            //kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';
+            kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';  // strncpy does not terminate on a full copy, and the send path now measures with strlen()
             SendDataMessage();
             NbrMsgToSend -= 1;  // One message is sent so we can reduce the counter
             SerialPrintDebugln(" Saving data, end of repetition ");
@@ -276,7 +276,7 @@ void SendFileKim(int time_to_send) {
           } else {
             SerialPrintDebugln(" The line to send is : " + String(new_line));
             strncpy(kineisdataMessage, new_line, sizeof(kineisdataMessage) - 1);
-            //kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';
+            kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';  // strncpy does not terminate on a full copy, and the send path now measures with strlen()
             SendDataMessage();
             NbrMsgToSend -= 1;  // One message is sent so we can reduce the counter
           }

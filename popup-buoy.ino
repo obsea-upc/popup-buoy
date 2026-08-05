@@ -45,6 +45,8 @@
 #include "ESP32_FTPClient.h"
 #include <TinyGPSPlus.h>
 #include "KIM.h"
+#include "ARRIBADA.h"
+#include "sat_module.h"
 #include <EEPROM.h>
 #include <Wire.h>
 
@@ -56,9 +58,13 @@
   TinyGPSPlus gps;                                 // The TinyGPSPlus object
   HardwareSerial gpsSerial(1);                     // UART1 (UART0 = USB debug, UART2 = KIM); pins set in gpsSerialBegin()
 
-//------ Configuration for KINEIS module ------------------------------------------------------------------------------
+//------ Configuration for the satellite transmitter -------------------------------------------------------------------
+// The KIM1 shield and the Arribada Argos SMD wing share one socket, one UART and one enable GPIO,
+// and are never fitted at the same time. Both drivers are built on the same serial port; sat_module.*
+// probes at boot and routes every call to whichever one actually answered.
   HardwareSerial kimSerial(2);  // hard coded no library
   KIM KIM(&kimSerial);          //with library
+  ARRIBADA Arribada(&kimSerial);
 
 //------ Kineis TX params (PWR2/PWR3/AFMT/delayKIM, kineisMessage/kineisdataMessage, new_line) now owned by satellite_tx.cpp
 
@@ -353,25 +359,26 @@ void setup() {
       delay(10);
       SerialPrintDebugln("GPS Module Setup ----> DONE");
     }
-  //------- KIM MODULE SETUP -------------------------------------------------------------------------------
+  //------- SATELLITE MODULE SETUP (KIM1 or Arribada, whichever is fitted) -----------------------------------
     if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
-      SerialPrintDebugln("KIM Module Setup ---->");
-      while (!KIM.check()) {
-        SerialPrintDebugln("Failed connexion to KIM module. Retriying in 3s...");
+      SerialPrintDebugln("Satellite Module Setup ---->");
+
+      // Probes the socket, reads the module ID and cross-checks it against the
+      // ID list on the SD card. Everything below goes through sat_module.*, so
+      // the rest of the sketch does not care which transmitter is installed.
+      while (satModuleDetect() == SAT_UNKNOWN) {
+        SerialPrintDebugln("No satellite module answered. Retriying in 1s...");
         delay(1000);
       }
-      SerialPrintDebugln(KIM.get_SN());
+
+      SerialPrintDebugln(satModuleGetSN());
       delay(delayKIM);
-      SerialPrintDebugln(KIM.get_ID());
       char logBuf[64];
-      snprintf(logBuf, sizeof(logBuf), "KIM ID: %s", KIM.get_ID());
+      snprintf(logBuf, sizeof(logBuf), "%s ID: %s", satModuleName(), satModuleGetID());
       writeLogFile(logBuf);
+      SerialPrintDebugln(logBuf);
       delay(delayKIM);
-      SerialPrintDebugln(KIM.get_PWR());
-      delay(delayKIM);
-      SerialPrintDebugln(KIM.get_AFMT());
-      delay(delayKIM);
-      SerialPrintDebugln("KIM Module Setup ----> DONE");
+      SerialPrintDebugln("Satellite Module Setup ----> DONE");
     }
  //------- ADC SETUP ---------------------------------------------------------------------------------------
   if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
