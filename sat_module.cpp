@@ -184,14 +184,30 @@ SatModuleType satModuleDetect() {
   kimSerial.begin(KIMBaud, SERIAL_8N1, RX_KIM, TX_KIM);
   delay(50);
 
+  // Try the "=?" form first since both current firmwares use it, then the "?"
+  // form the Arribada wiki documents, so a future build that switches to it
+  // still gets recognised.
   probeAT("AT+FW=?", reply, sizeof(reply), 1500);
+  if (strncmp(reply, "+FW=", 4) != 0) {
+    probeAT("AT+FW?", reply, sizeof(reply), 1500);
+  }
+
   if (strncmp(reply, "+FW=", 4) == 0) {
+    // Only the KIM1 puts its own name in the version string. Anything else that
+    // answers AT+FW at all is taken to be the Arribada, so its version string
+    // can change freely - which it will, it carries a git hash and a build date.
     detectedType = (strstr(reply, "KIM") != nullptr) ? SAT_KIM1 : SAT_ARRIBADA;
   } else {
-    // Nothing sensible came back. AT+AFMT exists only on the KIM1 (the Arribada
-    // answers +ERROR=1203), so it is a decent second opinion.
+    // Nothing sensible came back from either form. Fall back to commands that
+    // exist on one module only: AT+AFMT on the KIM1, AT+KMAC on the Arribada.
+    // Each answers +ERROR=1203/+ERROR on the other.
     probeAT("AT+AFMT=?", reply, sizeof(reply), 1500);
-    if (strncmp(reply, "+AFMT=", 6) == 0) detectedType = SAT_KIM1;
+    if (strncmp(reply, "+AFMT=", 6) == 0) {
+      detectedType = SAT_KIM1;
+    } else {
+      probeAT("AT+KMAC=?", reply, sizeof(reply), 1500);
+      if (strncmp(reply, "+KMAC=", 6) == 0) detectedType = SAT_ARRIBADA;
+    }
   }
 
   kimSerial.end();
@@ -306,7 +322,14 @@ bool satModuleSetFormat(const char *format) {
       return KIM.set_AFMT((char *)format, strlen(format)) == OK_KIM;
 
     case SAT_ARRIBADA:
-      // No AT+AFMT: the Arribada firmware always frames the payload itself.
+      // No AT+AFMT here; the equivalent knob is the MAC profile, and that is
+      // set before every transmission rather than once per session because the
+      // module forgets it whenever it loses power. Setting it now as well only
+      // reports early whether the module is answering.
+      if (Arribada.set_KMAC() != OK_ARRIBADA) {
+        writeLogFile("ARRIBADA KMAC_ERR at configuration");
+        return false;
+      }
       return true;
 
     default:
@@ -332,6 +355,14 @@ bool satModuleSendData(const char *hexPayload) {
       return KIM.send_data((char *)hexPayload, len) == OK_KIM;
 
     case SAT_ARRIBADA: {
+      // Re-select the MAC profile first. The module boots with +KMAC=0 and
+      // refuses to transmit in that state (+ERROR=253), the setting does not
+      // survive a power cut, and goToSleep() drops GPIO13 between messages -
+      // so once per session is not enough, it has to be here.
+      if (Arribada.set_KMAC() != OK_ARRIBADA) {
+        writeLogFile("ARRIBADA KMAC_ERR - transmission will be refused");
+      }
+
       char padded[SAT_MAX_HEX_ARRIBADA + 1];
       size_t paddedLen = padForArribada(hexPayload, padded, sizeof(padded));
       if (paddedLen == 0) {

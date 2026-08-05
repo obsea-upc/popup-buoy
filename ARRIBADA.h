@@ -21,6 +21,12 @@
 #define ARRIBADA_TIMEOUT_MS 30000
 #endif
 
+// MAC profile the buoy transmits with. 1 is the basic Kineis profile; the
+// module powers up with 0, which refuses to transmit.
+#ifndef ARRIBADA_KMAC_PROFILE
+#define ARRIBADA_KMAC_PROFILE 1
+#endif
+
 typedef enum {
   ERROR_ARRIBADA         = 0x00,
   UNKNOWN_ERROR_ARRIBADA = 0x02,
@@ -52,6 +58,15 @@ class ARRIBADA {
   // The returned pointer remains valid until the next command.
   char* get_ID();
   char* get_SN();
+
+  // Selects the Kineis MAC profile (AT+KMAC=<profile>).
+  //
+  // This is not optional and it is not persistent. The module boots with
+  // +KMAC=0 and answers +ERROR=253 to every AT+TX in that state; measured on
+  // this hardware, the setting is also lost whenever the module loses power.
+  // Since the buoy drops the module's supply between messages, it has to be
+  // re-sent before each transmission - satModuleSendData() does that.
+  RetStatusARRIBADATypeDef set_KMAC(uint8_t profile = ARRIBADA_KMAC_PROFILE);
 
   // Sends AT+TX=<hex payload>.
   // Returns OK when the module accepts/queues the command (+OK).

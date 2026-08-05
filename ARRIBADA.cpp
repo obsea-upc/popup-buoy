@@ -237,6 +237,11 @@ char* ARRIBADA::get_SN() {
   return response;
 }
 
+RetStatusARRIBADATypeDef ARRIBADA::set_KMAC(uint8_t profile) {
+  snprintf(command, sizeof(command), "AT+KMAC=%u", (unsigned)profile);
+  return send_ATCommand(command, nullptr, 5000);
+}
+
 RetStatusARRIBADATypeDef ARRIBADA::send_data(
     const char data[],
     uint16_t len) {
