@@ -771,6 +771,7 @@ void loop() {
           SendGPSMessage(timeSending);
 
       // --- USV DATA UPLOAD --- offer SD data to a BlueBoat if one is in range
+        #ifdef FRM_USV_UPLOAD
           int ret = tryUploadDataToUSV();
           if (ret == 0) {
             // Upload confirmed. Stay in FRM (do NOT drop to DM) and sleep 4 min,
@@ -780,6 +781,7 @@ void loop() {
             writeLogFile("USV upload complete. Staying in FRM, sleeping 4 min before next cycle.");
             sleepSecondsAndGoTo(4 * 60, ST_FRM);
           }
+        #endif
         }
       // --- SATELLITE PASS PREDICTION --- pass prediction only if GPS fix
         runSatellitePassPrediction(false);

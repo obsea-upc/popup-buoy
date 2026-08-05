@@ -36,6 +36,14 @@ inline const char* stateName(int s) {
 #define INITIAL_STATE ST_CONFIG
 #define TEST_FORCE_GPS_VILANOVA_PB2  // Test aid (permanent): tap PB_2 during the GPS search to inject a Vilanova i la Geltru fix from the RTC, so the Surface/SPP path can be exercised indoors
 
+////----- OPTIONAL FEATURES
+
+//#define FRM_USV_UPLOAD  // In Fast Recovery Mode, look for the BlueBoat's WiFi on every cycle and,
+                          // if the USV is in range, hand it the SD data over FTP and stay in FRM
+                          // instead of dropping to DM. Currently OFF: in FRM the buoy should only
+                          // acquire a GPS fix and transmit it. Uncomment to bring the USV rendezvous
+                          // back; the code it guards lives in the ST_FRM case and in usv_upload.*
+
 ///------ OPTIONS TO DEBUG
 //#define GPS_DEBUG_NMEA_GSA  // GPS diagnostics, kept for future use: echoes raw NMEA (GSA/PCAS/TXT),
                               // sends a $PCAS06 chipset probe and a UBX test that tries to silence GSA.
