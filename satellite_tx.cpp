@@ -66,6 +66,10 @@ void configureKIM(){
   delay(delayKIM);
 }
 
+// Start of the current transmit cycle, i.e. the moment the previous sleep
+// ended. Used to keep the spacing between transmissions constant.
+static uint32_t cycleStartMillis = 0;
+
 bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
@@ -76,7 +80,18 @@ bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
     } else {
       writeLogFile(" " + String(satModuleName()) + " MSG_ERR");
     }
-    goToSleep((waitRepeat-INTERVAL_SEND_MS)/1000);
+
+    // Sleep for whatever is left of the cycle rather than a fixed amount, so
+    // one transmission follows the next every waitRepeat ms no matter how long
+    // the GPS search and the module dialogue took. Before, a slow fix and a
+    // slow reply were simply added on top of a full-length sleep, and FRM could
+    // go a minute and a half between messages while trying to transmit often.
+    const uint32_t spent = millis() - cycleStartMillis;
+    int32_t sleepMs = (int32_t)waitRepeat - (int32_t)spent;
+    if (sleepMs < FRM_MIN_SLEEP_MS) sleepMs = FRM_MIN_SLEEP_MS;
+
+    goToSleep(sleepMs / 1000);
+    cycleStartMillis = millis();
   }
   return true;
 }

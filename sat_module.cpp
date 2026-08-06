@@ -399,6 +399,27 @@ bool satModuleSendData(const char *hexPayload) {
   }
 }
 
+void satModuleWakeUp() {
+  switch (detectedType) {
+    case SAT_ARRIBADA:
+      Arribada.begin(KIMBaud, RX_KIM, TX_KIM);
+      if (!Arribada.initialize()) {
+        writeLogFile("ARRIBADA did not answer after power-up");
+      }
+      break;
+
+    case SAT_KIM1:
+      // The KIM driver already brings its UART up inside set_sleepMode() and
+      // the module has never needed a wait here.
+      delay(5);
+      break;
+
+    default:
+      delay(5);
+      break;
+  }
+}
+
 void satModuleEnd() {
   if (detectedType == SAT_ARRIBADA) {
     Arribada.end();

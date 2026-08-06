@@ -109,6 +109,10 @@ inline const char* stateName(int s) {
 //------ Definition for KINEIS module
 #define INTERVAL_MS 30000         // Time in ms between two kineis messages (ms)
 #define INTERVAL_SEND_MS 6000    //Boosting the message
+// Floor for the sleep between transmissions. The sleep is now whatever is left
+// of INTERVAL_MS after the GPS search and the module dialogue, so on a slow
+// cycle it shrinks towards this value instead of being added on top.
+#define FRM_MIN_SLEEP_MS 5000
 #define KIM_RXD0 16
 #define KIM_TXD0 17
 #define KIMBaud 9600  //4800 in prev KIM1

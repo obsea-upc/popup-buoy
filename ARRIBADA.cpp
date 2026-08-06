@@ -54,6 +54,34 @@ void ARRIBADA::end() {
   }
 }
 
+bool ARRIBADA::initialize(uint32_t startupTimeoutMs) {
+  if (arribadaSerial == nullptr) {
+    return false;
+  }
+
+  if (!uartStarted) {
+    begin(baudRate, rxPinUsed, txPinUsed);
+  }
+
+  const uint32_t startTime = millis();
+
+  while ((millis() - startTime) < startupTimeoutMs) {
+    const uint32_t remaining = startupTimeoutMs - (millis() - startTime);
+    const uint32_t attempt =
+        (remaining < ARRIBADA_PING_ATTEMPT_MS) ? remaining : ARRIBADA_PING_ATTEMPT_MS;
+
+    if (attempt == 0) break;
+
+    // AT+ID rather than AT+PING: it is confirmed present on this firmware,
+    // while several documented commands are missing from this build.
+    if (send_ATCommand("AT+ID=?", "+ID=", attempt) == OK_ARRIBADA) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 void ARRIBADA::clearSerial() {
   if (arribadaSerial == nullptr) {
     return;
@@ -282,9 +310,10 @@ RetStatusARRIBADATypeDef ARRIBADA::send_data(
   // also means the loop only moves on once the transmission is really finished.
   if (status == OK_ARRIBADA) {
     char line[128];
-    const uint32_t deadline = millis() + 15000;
+    const uint32_t deadline = millis() + ARRIBADA_TX_TIMEOUT_MS;
     while (millis() < deadline) {
-      if (!readLine(line, sizeof(line), 15000)) break;
+      const uint32_t left = deadline - millis();
+      if (!readLine(line, sizeof(line), left)) break;
       if (strncmp(line, "+TX=", 4) == 0) break;   // done radiating
     }
   }

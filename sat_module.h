@@ -59,6 +59,13 @@ bool satModuleSendData(const char *hexPayload);
 // Releases the UART and tri-states its pins before the module is powered down.
 void satModuleEnd();
 
+// Waits, after the module has just been powered up, until it answers - up to a
+// few seconds, returning as soon as it does. Call it before the first command
+// of a wake cycle: the peripherals are switched on with a 5 ms delay, which is
+// far too little for the Arribada, and its first AT+TX would otherwise be sent
+// into a module that is still booting.
+void satModuleWakeUp();
+
 // Name of the SD file mapping module IDs to module types, one "ID;TYPE" per
 // line (TYPE being KIM1 or ARR), e.g. "26423D4;KIM1" / "294847;ARR".
 extern const char *SD_satmodule_filename;
