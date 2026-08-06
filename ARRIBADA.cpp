@@ -273,7 +273,23 @@ RetStatusARRIBADATypeDef ARRIBADA::send_data(
     return ERROR_ARRIBADA;
   }
 
-  return send_ATCommand(command, nullptr);
+  RetStatusARRIBADATypeDef status = send_ATCommand(command, nullptr);
+
+  // AT+TX answers +OK as soon as the message is queued, then emits
+  // "+TX=<status>,<payload>" once it has actually been radiated, seconds later.
+  // That late line must not be left in the buffer: the next command would read
+  // it as its own reply, lose the real one and time out. Swallow it here, which
+  // also means the loop only moves on once the transmission is really finished.
+  if (status == OK_ARRIBADA) {
+    char line[128];
+    const uint32_t deadline = millis() + 15000;
+    while (millis() < deadline) {
+      if (!readLine(line, sizeof(line), 15000)) break;
+      if (strncmp(line, "+TX=", 4) == 0) break;   // done radiating
+    }
+  }
+
+  return status;
 }
 
 void ARRIBADA::uint2hexString(

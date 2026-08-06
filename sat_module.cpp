@@ -381,6 +381,7 @@ bool satModuleSendData(const char *hexPayload) {
       if (Arribada.set_KMAC() != OK_ARRIBADA) {
         writeLogFile("ARRIBADA KMAC_ERR - transmission will be refused");
       }
+      delay(200);   // let the module settle before AT+TX lands on it
 
       char padded[SAT_MAX_HEX_ARRIBADA + 1];
       size_t paddedLen = padForArribada(hexPayload, padded, sizeof(padded));
