@@ -1,5 +1,4 @@
 #include "power_sleep.h"
-#include "sat_module.h"
 #include "conf.h"
 #include "logging.h"
 #include "eeprom_store.h"   // for eepromReadSyncTime
@@ -54,12 +53,7 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
   //Turn on peripherals (except for case 6)
     if (currentState != ST_FRM){
       ConnectPeripherals(true, GPS_KIM);
-      // The satellite module needs far longer than the 5 ms this used to allow
-      // before it will answer AT commands. Talking to it too early is what made
-      // the first transmission after every wake time out while the following
-      // ones worked. satModuleWakeUp() polls instead of guessing, so it only
-      // costs as long as the module actually takes.
-      satModuleWakeUp();
+      delay(5);
       ConnectPeripherals(true, SD_card);
       delay(5);
     }

@@ -66,13 +66,15 @@ void configureKIM(){
   delay(delayKIM);
 }
 
-// Start of the current transmit cycle, i.e. the moment the previous sleep
-// ended. Used to keep the spacing between transmissions constant.
+// millis() at the end of the previous transmission cycle, i.e. when the last
+// sleep ended. Used to keep the spacing between transmissions constant.
 static uint32_t cycleStartMillis = 0;
 
 // Sleeps for what is left of a cycleMs-long cycle, counting from when the
 // previous one ended, so messages go out every cycleMs however long the GPS
-// search and the module dialogue took.
+// search and the module dialogue took. Before this, a slow fix and a slow reply
+// were simply added on top of a full-length sleep, and FRM could go a minute and
+// a half between messages while trying to transmit as often as possible.
 static void sleepRestOfCycle(int cycleMs) {
   const uint32_t spent = millis() - cycleStartMillis;
   int32_t sleepMs = (int32_t)cycleMs - (int32_t)spent;
@@ -92,11 +94,6 @@ bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
     } else {
       writeLogFile(" " + String(satModuleName()) + " MSG_ERR");
     }
-
-    // Sleep for whatever is left of the cycle rather than a fixed amount.
-    // Before, a slow fix and a slow reply were simply added on top of a
-    // full-length sleep, and FRM could go a minute and a half between messages
-    // while trying to transmit often.
     sleepRestOfCycle(waitRepeat);
   }
   return true;
@@ -154,7 +151,20 @@ void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisM
 void SendGPSMessage(int timeSending) {
 
   maskGPS(gpsLat, gpsLong, epochTime, kineisMessage, ADCreadHex);
-  sendGPSviaKIM(timeSending / 30, INTERVAL_MS);  // N repetitions : Coverage time divided by the number of seconds beetwen each iteration, 30 sec between them
+
+  // FRM and DM space their messages differently (see conf.h), so the number of
+  // repetitions has to be worked out from the interval actually in use rather
+  // than from a hard-coded 30 s.
+  const int cycleMs = (currentState == ST_FRM) ? FRM_INTERVAL_MS : INTERVAL_MS;
+
+  // N repetitions: the coverage time divided by the length of one cycle. FRM
+  // calls this with timeSending=30 for a 60 s cycle, which rounds down to zero,
+  // so keep at least one - FRM sends exactly one message per loop iteration and
+  // does its own repeating.
+  int sendRepeat = timeSending / (cycleMs / 1000);
+  if (sendRepeat < 1) sendRepeat = 1;
+
+  sendGPSviaKIM(sendRepeat, cycleMs);
 }
 
 void SendDataMessage() {
@@ -165,6 +175,7 @@ void SendDataMessage() {
   } else {
     writeLogFile(String(satModuleName()) + " MSG_ERR");
   }
+  // Seabed data only ever goes out in DM, so it keeps the 30 s DM spacing.
   sleepRestOfCycle(INTERVAL_MS);
 }
 

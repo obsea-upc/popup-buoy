@@ -17,30 +17,16 @@
 #define ARRIBADA_BAUD 9600
 #endif
 
-// Ordinary commands answer in milliseconds, so a short timeout is enough and a
-// failure then costs seconds instead of stalling the whole FRM cycle. This used
-// to be 30 s, which meant one lost reply wasted half a minute of a state whose
-// entire point is transmitting often.
 #ifndef ARRIBADA_TIMEOUT_MS
-#define ARRIBADA_TIMEOUT_MS 3000
+#define ARRIBADA_TIMEOUT_MS 30000
 #endif
 
-// Time allowed for the module to become responsive after it is powered up.
-// Tried in short PING bursts, returning as soon as it answers, so the full wait
-// is only paid when the module really is absent.
-#ifndef ARRIBADA_STARTUP_TIMEOUT_MS
-#define ARRIBADA_STARTUP_TIMEOUT_MS 10000
-#endif
-
-#ifndef ARRIBADA_PING_ATTEMPT_MS
-#define ARRIBADA_PING_ATTEMPT_MS 750
-#endif
-
-// A transmission is a different matter: +OK comes back quickly but the
-// "+TX=<status>,<payload>" that says the message is actually radiated arrives
-// seconds later, and it must be consumed before anything else is sent.
-#ifndef ARRIBADA_TX_TIMEOUT_MS
-#define ARRIBADA_TX_TIMEOUT_MS 15000
+// How long to wait, after the module has accepted AT+TX with +OK, for the
+// "+TX=0,<payload>" line that reports the burst has actually been radiated.
+// Measured on this hardware it arrives ~740 ms after the +OK (2924 ms vs
+// 2184 ms from the command), so this is generous on purpose.
+#ifndef ARRIBADA_TX_DONE_TIMEOUT_MS
+#define ARRIBADA_TX_DONE_TIMEOUT_MS 10000
 #endif
 
 // MAC profile the buoy transmits with. 1 is the basic Kineis profile; the
@@ -69,14 +55,6 @@ class ARRIBADA {
   // Releases the UART and tri-states the pins, so the powered-down module is
   // not back-fed through its RX pin.
   void end();
-
-  // Waits for the module to answer after power-up, polling rather than sleeping
-  // a fixed time, so it costs only as long as the module actually needs.
-  //
-  // Worth calling after every power-up: the buoy gives its peripherals 5 ms to
-  // come alive, which is nowhere near enough for this module, and the first
-  // AT+TX afterwards would otherwise be talking to something still booting.
-  bool initialize(uint32_t startupTimeoutMs = ARRIBADA_STARTUP_TIMEOUT_MS);
 
   // Sends AT+PING and checks for +OK. The KIM1 firmware has no PING command,
   // which is what makes this a reliable way to tell the two modules apart.
@@ -111,12 +89,24 @@ class ARRIBADA {
 
   // Sends AT+TX=<hex payload>.
   // Returns OK when the module accepts/queues the command (+OK).
-  // It does not wait for the later +TX=0,<payload> RF completion message.
+  //
+  // It then waits for the "+TX=0,<payload>" RF-completion line and records
+  // whether it arrived; ask tx_confirmed() afterwards. The return value is
+  // deliberately still driven by the +OK alone, so a firmware build that never
+  // emits the completion line cannot silently stop the buoy transmitting.
   //
   // The payload length must already be a multiple of 8 hex characters; the
   // firmware answers +ERROR=1100 otherwise. satModuleSendData() takes care of
   // that, so call through sat_module.* rather than here.
   RetStatusARRIBADATypeDef send_data(const char data[], uint16_t len);
+
+  // True when the last send_data() saw the +TX completion line, i.e. the burst
+  // really went out on the air rather than merely being accepted.
+  //
+  // This distinction is not academic: on 7 Aug 2026 a loose antenna connector
+  // let the buoy log 4.5 hours of "MSG_OK" - ~470 accepted commands - while the
+  // ground segment received precisely nothing.
+  bool tx_confirmed() const { return txConfirmed; }
 
   // Converts a byte array into an uppercase hexadecimal C string.
   static void uint2hexString(const uint8_t* input, uint16_t len, char* output);
@@ -127,6 +117,7 @@ class ARRIBADA {
   int8_t rxPinUsed;
   int8_t txPinUsed;
   bool uartStarted;
+  bool txConfirmed;
 
   char response[128];
   char command[160];

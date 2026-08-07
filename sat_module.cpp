@@ -381,7 +381,6 @@ bool satModuleSendData(const char *hexPayload) {
       if (Arribada.set_KMAC() != OK_ARRIBADA) {
         writeLogFile("ARRIBADA KMAC_ERR - transmission will be refused");
       }
-      delay(200);   // let the module settle before AT+TX lands on it
 
       char padded[SAT_MAX_HEX_ARRIBADA + 1];
       size_t paddedLen = padForArribada(hexPayload, padded, sizeof(padded));
@@ -389,34 +388,20 @@ bool satModuleSendData(const char *hexPayload) {
         writeLogFile("SAT MSG_ERR: payload too long for ARRIBADA (" + String(len) + " hex chars, max " + String(SAT_MAX_HEX_ARRIBADA) + ")");
         return false;
       }
-      if (Arribada.send_data(padded, paddedLen) == OK_ARRIBADA) return true;
+      if (Arribada.send_data(padded, paddedLen) == OK_ARRIBADA) {
+        // Accepted, but did it actually go on the air? Without this check a bad
+        // antenna connection looks exactly like a healthy buoy in the log.
+        if (!Arribada.tx_confirmed()) {
+          writeLogFile("ARRIBADA TX_UNCONFIRMED: accepted (+OK) but no +TX completion - suspect antenna/RF");
+        }
+        return true;
+      }
       writeLogFile("ARRIBADA MSG_ERR sending " + String(paddedLen) + " hex chars");
       return false;
     }
 
     default:
       return false;
-  }
-}
-
-void satModuleWakeUp() {
-  switch (detectedType) {
-    case SAT_ARRIBADA:
-      Arribada.begin(KIMBaud, RX_KIM, TX_KIM);
-      if (!Arribada.initialize()) {
-        writeLogFile("ARRIBADA did not answer after power-up");
-      }
-      break;
-
-    case SAT_KIM1:
-      // The KIM driver already brings its UART up inside set_sleepMode() and
-      // the module has never needed a wait here.
-      delay(5);
-      break;
-
-    default:
-      delay(5);
-      break;
   }
 }
 

@@ -107,16 +107,23 @@ inline const char* stateName(int s) {
 #define GPSBaud 9600
 
 //------ Definition for KINEIS module
-// Time between two satellite messages, measured transmission to transmission.
-// A GPS fix takes 20-30 s and the module dialogue a few more, so 60 s leaves a
-// sensible amount of light sleep on a normal cycle without stretching the gap
-// between messages. It also keeps the buoy inside the Argos recommendation of
-// never transmitting twice within a minute.
-#define INTERVAL_MS 60000
+// Spacing between two satellite transmissions, measured transmission to
+// transmission. The sleep absorbs however long the GPS search and the module
+// dialogue took, so the spacing holds whatever the cycle costs - see
+// sleepRestOfCycle() in satellite_tx.cpp.
+//
+// The two modes deliberately differ. DM keeps 30 s because the Argos window is
+// only 5-7 minutes and the priority there is pushing as many seabed-data
+// messages as possible through it; halving that rate halves the data returned.
+// FRM has no such deadline - it only needs the boat to keep getting positions -
+// so it uses 60 s, which also keeps the buoy inside the Argos recommendation of
+// not transmitting twice within the same minute.
+#define INTERVAL_MS 30000        // DM + seabed data: ms between transmissions
+#define FRM_INTERVAL_MS 60000    // Fast Recovery Mode: ms between transmissions
 #define INTERVAL_SEND_MS 6000    //Boosting the message
 // Floor for the sleep between transmissions. The sleep is whatever is left of
-// INTERVAL_MS after the GPS search and the module dialogue, so on a slow cycle
-// it shrinks towards this value instead of being added on top.
+// the cycle after the GPS search and the module dialogue, so on a slow cycle it
+// shrinks towards this value instead of being added on top of a full-length one.
 #define FRM_MIN_SLEEP_MS 5000
 #define KIM_RXD0 16
 #define KIM_TXD0 17

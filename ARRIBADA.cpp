@@ -14,7 +14,8 @@ ARRIBADA::ARRIBADA(HardwareSerial* device)
       baudRate(ARRIBADA_BAUD),
       rxPinUsed(-1),
       txPinUsed(-1),
-      uartStarted(false) {
+      uartStarted(false),
+      txConfirmed(false) {
   response[0] = '\0';
   command[0] = '\0';
 }
@@ -52,34 +53,6 @@ void ARRIBADA::end() {
     pinMode(rxPinUsed, INPUT);
     pinMode(txPinUsed, INPUT);
   }
-}
-
-bool ARRIBADA::initialize(uint32_t startupTimeoutMs) {
-  if (arribadaSerial == nullptr) {
-    return false;
-  }
-
-  if (!uartStarted) {
-    begin(baudRate, rxPinUsed, txPinUsed);
-  }
-
-  const uint32_t startTime = millis();
-
-  while ((millis() - startTime) < startupTimeoutMs) {
-    const uint32_t remaining = startupTimeoutMs - (millis() - startTime);
-    const uint32_t attempt =
-        (remaining < ARRIBADA_PING_ATTEMPT_MS) ? remaining : ARRIBADA_PING_ATTEMPT_MS;
-
-    if (attempt == 0) break;
-
-    // AT+ID rather than AT+PING: it is confirmed present on this firmware,
-    // while several documented commands are missing from this build.
-    if (send_ATCommand("AT+ID=?", "+ID=", attempt) == OK_ARRIBADA) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 void ARRIBADA::clearSerial() {
@@ -280,6 +253,8 @@ RetStatusARRIBADATypeDef ARRIBADA::set_KMAC(uint8_t profile) {
 RetStatusARRIBADATypeDef ARRIBADA::send_data(
     const char data[],
     uint16_t len) {
+  txConfirmed = false;
+
   if (data == nullptr || len == 0) {
     return ERROR_ARRIBADA;
   }
@@ -301,24 +276,40 @@ RetStatusARRIBADATypeDef ARRIBADA::send_data(
     return ERROR_ARRIBADA;
   }
 
-  RetStatusARRIBADATypeDef status = send_ATCommand(command, nullptr);
+  const RetStatusARRIBADATypeDef status = send_ATCommand(command, nullptr);
+  if (status != OK_ARRIBADA) {
+    return status;
+  }
 
-  // AT+TX answers +OK as soon as the message is queued, then emits
-  // "+TX=<status>,<payload>" once it has actually been radiated, seconds later.
-  // That late line must not be left in the buffer: the next command would read
-  // it as its own reply, lose the real one and time out. Swallow it here, which
-  // also means the loop only moves on once the transmission is really finished.
-  if (status == OK_ARRIBADA) {
-    char line[128];
-    const uint32_t deadline = millis() + ARRIBADA_TX_TIMEOUT_MS;
-    while (millis() < deadline) {
-      const uint32_t left = deadline - millis();
-      if (!readLine(line, sizeof(line), left)) break;
-      if (strncmp(line, "+TX=", 4) == 0) break;   // done radiating
+  // The +OK above only says the module queued the command. The burst itself is
+  // reported afterwards by a "+TX=0,<payload>" line. Consume it here for two
+  // reasons: it tells the caller whether anything was actually radiated, and it
+  // keeps the line out of the buffer, where the next command's clearSerial()
+  // would swallow it.
+  //
+  // Not finding it is not treated as a failure - see the note in the header.
+  const uint32_t startTime = millis();
+  char line[128];
+
+  while (true) {
+    const uint32_t elapsed = millis() - startTime;
+    if (elapsed >= ARRIBADA_TX_DONE_TIMEOUT_MS) {
+      break;
+    }
+
+    if (!readLine(line, sizeof(line), ARRIBADA_TX_DONE_TIMEOUT_MS - elapsed)) {
+      break;
+    }
+
+    if (strncmp(line, "+TX=", 4) == 0) {
+      txConfirmed = true;
+      strncpy(response, line, sizeof(response) - 1);
+      response[sizeof(response) - 1] = '\0';
+      break;
     }
   }
 
-  return status;
+  return OK_ARRIBADA;
 }
 
 void ARRIBADA::uint2hexString(
