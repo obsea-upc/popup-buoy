@@ -1,10 +1,14 @@
 #include "adc.h"
 #include "conf.h"      // for ADC_PIN
 #include "logging.h"
+#include <RTClib.h>
 
 // Battery voltage + ADC hex reading, owned by this module (declared extern in adc.h).
 float Vin_ADC;      // read by the state machine's battery checks
 char ADCreadHex[3]; // 2 hex chars, put into the Kineis message by maskGPS
+
+// RTC owned by the main sketch (popup-buoy.ino); read here for the once-per-cycle die temperature log.
+extern RTC_DS3231 rtcExt;
 
 // --- Current (analog) hardware only. On the new board this becomes an I2C read. ---
 #define ADC_RESOLUTION 8  // ADC resolution in bits
@@ -57,4 +61,11 @@ void adcAcquireData(char *ADCreadHex) {
   SerialPrintDebug(buffer);
   SerialPrintDebugln(" V");
   writeLogFile("Vin (up): " + String(buffer) + " V");
+
+  // DS3231 die temperature (updated internally every 64 s, +-3 C, not ambient-calibrated) --
+  // logged each cycle to check the overheating-in-the-sun hypothesis.
+  float rtcTempC = rtcExt.getTemperature();
+  SerialPrintDebug("RTC temp: ");
+  SerialPrintDebugln(String(rtcTempC) + " C");
+  writeLogFile("RTC temp: " + String(rtcTempC) + " C");
 }
