@@ -551,11 +551,14 @@ void loop() {
       SleepModeSequence(0, 0, 5,0);
       break;
     case 2:
-      // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 4 TO TEST with coverage yes and 2000 seconds
+      // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 4 TO TEST
+      // Coverage duration starts at 0 on purpose: the buoy has not run the pass
+      // prediction yet, so there is no reason to believe a satellite is overhead.
+      // With duration 0 the first wake sends only the GPS position, runs the SPP,
+      // and from then on wakes up for real passes with the data file.
       currentState = ST_DM;
       eepromSaveState(currentState);
-      //SetCoverageDurationTo_0();
-      eepromSaveTimeCoverage(500);
+      SetCoverageDurationTo_0();
       SetCoverageStateTo(1);
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();
