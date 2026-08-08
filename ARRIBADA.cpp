@@ -276,7 +276,8 @@ RetStatusARRIBADATypeDef ARRIBADA::send_data(
     return ERROR_ARRIBADA;
   }
 
-  const RetStatusARRIBADATypeDef status = send_ATCommand(command, nullptr);
+  const RetStatusARRIBADATypeDef status =
+      send_ATCommand(command, nullptr, ARRIBADA_TX_ACCEPT_TIMEOUT_MS);
   if (status != OK_ARRIBADA) {
     return status;
   }

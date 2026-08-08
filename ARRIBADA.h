@@ -29,6 +29,16 @@
 #define ARRIBADA_TX_DONE_TIMEOUT_MS 10000
 #endif
 
+// How long to wait for the +OK that accepts AT+TX. A 943-cycle bench soak put
+// it at 2184 ms every single time, with no variance at all, so 8 s is already
+// four times the observed worst case. It is deliberately much shorter than
+// ARRIBADA_TIMEOUT_MS: when the module swallows a transmission it says nothing
+// whatsoever, and waiting the full 30 s there would eat most of a FRM cycle for
+// nothing. See satModuleSendData() for the retry this enables.
+#ifndef ARRIBADA_TX_ACCEPT_TIMEOUT_MS
+#define ARRIBADA_TX_ACCEPT_TIMEOUT_MS 8000
+#endif
+
 // MAC profile the buoy transmits with. 1 is the basic Kineis profile; the
 // module powers up with 0, which refuses to transmit.
 #ifndef ARRIBADA_KMAC_PROFILE

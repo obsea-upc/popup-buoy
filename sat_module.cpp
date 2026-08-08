@@ -388,7 +388,24 @@ bool satModuleSendData(const char *hexPayload) {
         writeLogFile("SAT MSG_ERR: payload too long for ARRIBADA (" + String(len) + " hex chars, max " + String(SAT_MAX_HEX_ARRIBADA) + ")");
         return false;
       }
-      if (Arribada.send_data(padded, paddedLen) == OK_ARRIBADA) {
+      // Every 108th AT+TX, this module answers nothing at all - not even the
+      // +OK. Measured on the bench over 943 cycles: 8 failures, at cycles 107,
+      // 215, 323 ... exactly 108 apart every time, which is the ~62 minutes
+      // seen in the field at a 34 s cycle. The module is not hung when it
+      // happens: AT+KMAC is answered normally in the same cycle, and the next
+      // transmission goes out with its usual 2184 ms timing. Nothing is queued
+      // either, so retrying cannot produce a duplicate on the air.
+      //
+      // Retry only on total silence. A message that came back +OK was accepted
+      // by the module and must never be sent twice.
+      RetStatusARRIBADATypeDef st = Arribada.send_data(padded, paddedLen);
+      if (st != OK_ARRIBADA) {
+        writeLogFile("ARRIBADA TX_SWALLOWED (status " + String((int)st) + ") - retrying once");
+        delay(500);
+        st = Arribada.send_data(padded, paddedLen);
+      }
+
+      if (st == OK_ARRIBADA) {
         // Accepted, but did it actually go on the air? Without this check a bad
         // antenna connection looks exactly like a healthy buoy in the log.
         if (!Arribada.tx_confirmed()) {
