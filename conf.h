@@ -86,7 +86,12 @@ inline const char* stateName(int s) {
 //#define BAT_CRIT_LEVEL 3.5
 
 //------ Definition for Sleep mode and parameters
-#define TIME_LESS_BEFORE_AWAKENING 30  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite 
+#define TIME_LESS_BEFORE_AWAKENING 30  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
+// How many times the pass prediction may fail before the buoy stops retrying and
+// deep-sleeps instead. The retry was unbounded and cost both buoys more than five
+// hours of the 9 Aug test, awake, recomputing a prediction that could not succeed.
+#define SPP_MAX_RETRIES 3
+#define SPP_GIVEUP_SLEEP_S 600  // sleep after giving up, then retry with a fresh GPS fix 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds 
 #define CRIT_FACTOR 3                 // In stage 5, critical battery, all sleep times are X times larger
 
@@ -112,8 +117,8 @@ inline const char* stateName(int s) {
 // dialogue took, so the spacing holds whatever the cycle costs - see
 // sleepRestOfCycle() in satellite_tx.cpp.
 //
-#define INTERVAL_MS 45000        // DM + seabed data: ms between transmissions
-#define FRM_INTERVAL_MS 45000    // Fast Recovery Mode: ms between transmissions
+#define INTERVAL_MS 30000        // DM + seabed data: ms between transmissions
+#define FRM_INTERVAL_MS 30000    // Fast Recovery Mode: ms between transmissions
 #define INTERVAL_SEND_MS 6000    //Boosting the message
 // Floor for the sleep between transmissions. The sleep is whatever is left of
 // the cycle after the GPS search and the module dialogue, so on a slow cycle it

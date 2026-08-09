@@ -40,6 +40,7 @@ void runSatellitePassPrediction(bool lowPower) {
       MinElev = critMinElev;
     }
     bool SPP_progress = true;
+    int sppAttempts = 0;   // bounds the retry loop below
 
     while (SPP_progress){
 
@@ -68,11 +69,27 @@ void runSatellitePassPrediction(bool lowPower) {
           writeLogFile("SPP ERROR. Sleeping for 3 h and starting state 5 again with no satellite.");
           SPP_progress=false;
         } else {
-          Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
-          SetCoverageStateTo(0);
-          writeLogFile("SPP ERROR. Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
-          goToSleep(Decimal_CoverageDuration);
-          SPP_progress=true;
+          sppAttempts++;
+          if (sppAttempts >= SPP_MAX_RETRIES) {
+            // Stop spinning. On 9 Aug both buoys spent over five hours here -
+            // awake, light-sleeping 60 s at a time and recomputing a prediction
+            // that could not succeed - which is a third of the test burned for
+            // nothing. A deep sleep costs almost no power and comes back with a
+            // fresh GPS fix, which is exactly what the prediction was missing.
+            secondsBeforeNextStatellite = SPP_GIVEUP_SLEEP_S;
+            SetCoverageDurationTo_0();
+            SetCoverageStateTo(0);
+            writeLogFile("SPP ERROR x" + String(sppAttempts) + ". Giving up and sleeping "
+                         + String(SPP_GIVEUP_SLEEP_S) + " s for a fresh GPS fix.");
+            SPP_progress=false;
+          } else {
+            Decimal_CoverageDuration = 60;  // I found some problems so let's just sleep for 1 minute and repeat the SPP
+            SetCoverageStateTo(0);
+            writeLogFile("SPP ERROR " + String(sppAttempts) + "/" + String(SPP_MAX_RETRIES)
+                         + ". Sleeping light for " + String(Decimal_CoverageDuration) + " s and repeating SPP.");
+            goToSleep(Decimal_CoverageDuration);
+            SPP_progress=true;
+          }
         }
       }
     }
@@ -144,13 +161,40 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
 
   struct SatelliteNextPassPrediction_t nextPass;
   struct SatelliteNextPassPrediction_t earliestPass;
+  bool passFound = false;
 
   for (uint8_t i = 0; i < nbSatsInAopTable; i++) {
-    PREVIPASS_compute_next_pass(&prepasConfiguration, &aopTable[i], 1, &nextPass);
-    if (i == 0 || nextPass.epoch < earliestPass.epoch) {  // Comparison with time now so it won't bring back a SPP already begun
+    // PREVIPASS returns false when it finds no pass for this satellite, and that
+    // return value used to be discarded. With "i == 0" accepting the first entry
+    // unconditionally, a satellite with no pass left earliestPass holding epoch 0
+    // - and since nothing is earlier than zero, no later satellite could replace
+    // it. That is the "XX on 7/1/2004, -712731974 sec" in the 9 Aug logs, and it
+    // is what kept the retry loop spinning for five hours.
+    if (!PREVIPASS_compute_next_pass(&prepasConfiguration, &aopTable[i], 1, &nextPass)) {
+      continue;
+    }
+    // A pass that is still in progress is worth returning: the caller can reuse
+    // what is left of it (the overlap branch). One that has already ENDED is not
+    // - it can only come back as a negative time and be thrown away as an error.
+    // epoch is a Unix timestamp here, same base as the RTC (see the display code
+    // below, which converts it with EPOCH_90_TO_70_OFFSET).
+    if (nextPass.epoch + (uint32_t)nextPass.duration <= now.unixtime()) {
+      continue;
+    }
+    if (!passFound || nextPass.epoch < earliestPass.epoch) {
       earliestPass = nextPass;
+      passFound = true;
       delay(100);
     }
+  }
+
+  if (!passFound) {
+    // Nothing above MinElev in the whole prediction window. Report it as a
+    // negative time with zero coverage so the caller takes its error path, which
+    // is now bounded, instead of us inventing a schedule out of an empty result.
+    writeLogFile("SPP: no satellite pass found above " + String(MinElev) + " deg");
+    SetCoverageDurationTo_0();
+    return -1;
   }
   //messageLogFile = "For the SPP : Next satellite epoch : " + String(earliestPass.epoch) + " and epoch now : " + String(now.unixtime());
   //writeLogFile(messageLogFile);
