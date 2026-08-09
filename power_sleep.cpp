@@ -3,6 +3,7 @@
 #include "logging.h"
 #include "eeprom_store.h"   // for eepromReadSyncTime
 #include "wifi_http.h"      // for wifiShutdown
+#include "gps.h"            // for gpsSerialBegin
 #include <RTClib.h>
 #include <SD.h>
 #include <esp_sleep.h>
@@ -11,6 +12,7 @@
 extern RTC_DS3231 rtcExt;
 extern int syncTime;
 extern int currentState;
+extern HardwareSerial gpsSerial;
 
 void SleepModeSequence(int8_t sleepingHours, int8_t sleepingMinute, int8_t sleepingSecond, int sleepMode) {
   //Leave the AP cleanly before we vanish (still on SD power, so this can be logged)
@@ -42,6 +44,19 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
     SD.end();
   //Turn off peripherals (except for case 6)
    if (currentState != ST_FRM){
+      // Let go of the GPS transmit line before opening the relay. Measured on the
+      // bench 9 Aug: with the rail already cut, GPIO2 on its own kept the whole
+      // GPS+KIM supply half alive - the ESP32 holds it high as the idle UART
+      // level, the current enters the GPS receive pin, crosses that pin's ESD
+      // clamp and lands on the shared rail, so the KIM lit up as well. Bisected
+      // pin by pin: dropping the KIM ON/OFF and the KIM transmit line changed
+      // nothing at all, dropping this one put both modules out. Only this pin is
+      // touched, for that reason - the KIM UART is the transmit path and is left
+      // alone.
+      gpsSerial.end();
+      pinMode(TXPin_GPS, OUTPUT);
+      digitalWrite(TXPin_GPS, LOW);
+
       ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices (not in case &)
       delay(5);
       ConnectPeripherals(false, SD_card);
@@ -65,6 +80,11 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
       delay(5);
       ConnectPeripherals(true, SD_card);
       delay(5);
+      // The port has to be reopened here. gpsAcquireData() does not open it - it
+      // is opened once at boot and once in gpsAcquireSatellites, neither of which
+      // runs again in DM - so without this the receiver would go silent for the
+      // rest of the drift after the first light sleep.
+      gpsSerialBegin();
     }
   //initialize again SD
     if (!SD.begin()) {
