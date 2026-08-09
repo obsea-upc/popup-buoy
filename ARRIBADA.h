@@ -118,6 +118,12 @@ class ARRIBADA {
   // ground segment received precisely nothing.
   bool tx_confirmed() const { return txConfirmed; }
 
+  // The last line the module sent back. Worth logging on a failure: a timeout
+  // with this empty means the module said nothing at all, while a timeout with
+  // something in it means it answered and we did not recognise the answer, and
+  // those two want completely different fixes.
+  const char* last_response() const { return response; }
+
   // Converts a byte array into an uppercase hexadecimal C string.
   static void uint2hexString(const uint8_t* input, uint16_t len, char* output);
 

@@ -379,7 +379,8 @@ bool satModuleSendData(const char *hexPayload) {
       // power cycle is one that writes it to flash, and then this should happen
       // once per power-up rather than once per message.
       if (Arribada.set_KMAC() != OK_ARRIBADA) {
-        writeLogFile("ARRIBADA KMAC_ERR - transmission will be refused");
+        writeLogFile("ARRIBADA KMAC_ERR last=[" + String(Arribada.last_response())
+                     + "] - transmission will be refused");
       }
 
       char padded[SAT_MAX_HEX_ARRIBADA + 1];
@@ -400,7 +401,8 @@ bool satModuleSendData(const char *hexPayload) {
       // by the module and must never be sent twice.
       RetStatusARRIBADATypeDef st = Arribada.send_data(padded, paddedLen);
       if (st != OK_ARRIBADA) {
-        writeLogFile("ARRIBADA TX_SWALLOWED (status " + String((int)st) + ") - retrying once");
+        writeLogFile("ARRIBADA TX_SWALLOWED (status " + String((int)st) + ") last=["
+                     + String(Arribada.last_response()) + "] - retrying once");
         delay(500);
         st = Arribada.send_data(padded, paddedLen);
       }
@@ -413,7 +415,8 @@ bool satModuleSendData(const char *hexPayload) {
         }
         return true;
       }
-      writeLogFile("ARRIBADA MSG_ERR sending " + String(paddedLen) + " hex chars");
+      writeLogFile("ARRIBADA MSG_ERR sending " + String(paddedLen) + " hex chars, status "
+                   + String((int)st) + ", last=[" + String(Arribada.last_response()) + "]");
       return false;
     }
 
