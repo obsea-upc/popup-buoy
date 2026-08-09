@@ -199,39 +199,23 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   //messageLogFile = "For the SPP : Next satellite epoch : " + String(earliestPass.epoch) + " and epoch now : " + String(now.unixtime());
   //writeLogFile(messageLogFile);
 
-  //! Sat name
-  char satNameTwoChars[3];
-
-  switch (earliestPass.satHexId) {
-    case 0x2:
-      strcpy(satNameTwoChars, "03");
+  //! Sat name, read back from the AOP file rather than from a fixed table.
+  //
+  // This used to switch on satHexId against a hardcoded list - 03, A1, MA, MB,
+  // MC, NK, NN, NP, SR - which is the legacy Argos fleet: MetOp, NOAA, SARAL.
+  // It knows nothing about the Kineis nanosats, so with a Kineis AOP every pass
+  // printed as "XX". Worse, the ids overlap: 0xB is MetOp-C in that table but is
+  // 1A in a Kineis AOP, and 0xA came out as "MA" on 9 Aug when it was a nanosat.
+  // parseLine() already stores the first column of each AOP line in entryName,
+  // so the file itself is the answer and stays right whatever fleet is loaded.
+  char satNameTwoChars[sizeof(aopTable[0].entryName)];
+  strcpy(satNameTwoChars, "XX");
+  for (uint8_t i = 0; i < nbSatsInAopTable; i++) {
+    if (aopTable[i].satHexId == earliestPass.satHexId) {
+      strncpy(satNameTwoChars, aopTable[i].entryName, sizeof(satNameTwoChars) - 1);
+      satNameTwoChars[sizeof(satNameTwoChars) - 1] = '\0';
       break;
-    case 0x6:
-      strcpy(satNameTwoChars, "A1");
-      break;
-    case 0xA:
-      strcpy(satNameTwoChars, "MA");
-      break;
-    case 0x9:
-      strcpy(satNameTwoChars, "MB");
-      break;
-    case 0xB:
-      strcpy(satNameTwoChars, "MC");
-      break;
-    case 0x5:
-      strcpy(satNameTwoChars, "NK");
-      break;
-    case 0x8:
-      strcpy(satNameTwoChars, "NN");
-      break;
-    case 0xC:
-      strcpy(satNameTwoChars, "NP");
-      break;
-    case 0xD:
-      strcpy(satNameTwoChars, "SR");
-      break;
-    default:
-      strcpy(satNameTwoChars, "XX");
+    }
   }
 
   struct CalendarDateTime_t viewable_timedata;
