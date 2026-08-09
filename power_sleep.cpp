@@ -49,7 +49,16 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
     }
   //Gotoleep light
     esp_sleep_enable_timer_wakeup(sleeping_time * uS_TO_S_FACTOR);
+    // Measure what the sleep actually did. On 8 Aug 2026 the KIM buoy ran a whole
+    // day at a 7.9 s cycle instead of 31.6 s because this call kept returning
+    // immediately, and there was no way to tell from the logs. A bench probe on
+    // the same board later slept correctly every time, so whatever rejects the
+    // sleep is a runtime condition - most likely another wakeup source already
+    // asserted. Record the duration and the cause so the next occurrence names it.
+    const uint32_t sleepEntryMs = millis();
     esp_light_sleep_start();
+    const uint32_t sleptMs = millis() - sleepEntryMs;
+    const int wakeCause = (int)esp_sleep_get_wakeup_cause();
   //Turn on peripherals (except for case 6)
     if (currentState != ST_FRM){
       ConnectPeripherals(true, GPS_KIM);
@@ -63,6 +72,12 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
           return;   //ojo amb aquest return --> posar while?
     }else{
       SerialPrintDebugln("SD card open again");
+    }
+  // Logged only when the sleep came up short, so a healthy buoy adds nothing to
+  // the SD. Has to happen here: the card is only back online after SD.begin().
+    if (sleptMs < (uint32_t)sleeping_time * 900UL) {
+      writeLogFile("LIGHT SLEEP SHORT: asked " + String(sleeping_time) + " s, slept "
+                   + String(sleptMs) + " ms, wake cause " + String(wakeCause));
     }
   delay(10);
 }
