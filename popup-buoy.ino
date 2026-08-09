@@ -534,6 +534,36 @@ void runSeabedRoutine() {
     }
 }
 
+// Wait for a second button press, for up to timeoutMs. Returns 1, 2 or 3, or 0 if
+// nothing was pressed in time. The green LED blinks while it waits, so the buoy
+// can be answered on the bench with no serial monitor attached. Buttons are
+// INPUT_PULLUP, so a pressed button reads LOW.
+static int waitForButtonChoice(unsigned long timeoutMs) {
+  const unsigned long start = millis();
+  int chosen = 0;
+
+  while (chosen == 0 && millis() - start < timeoutMs) {
+    if (digitalRead(PB_1) == LOW)      chosen = 1;
+    else if (digitalRead(PB_2) == LOW) chosen = 2;
+    else if (digitalRead(PB_3) == LOW) chosen = 3;
+    else {
+      digitalWrite(LED_G, ((millis() - start) / 250) % 2);
+      delay(20);
+    }
+  }
+  digitalWrite(LED_G, LOW);
+
+  // Hold here until the button is released, or the same press would be read
+  // again by the next pushButtonRefresh().
+  if (chosen != 0) {
+    delay(50);  // debounce
+    while (digitalRead(PB_1) == LOW || digitalRead(PB_2) == LOW || digitalRead(PB_3) == LOW) {
+      delay(50);
+    }
+  }
+  return chosen;
+}
+
 void loop() {
 
   writeLogFile("-----------------//Rebooting\\\\--------------------- ");
@@ -552,17 +582,35 @@ void loop() {
       break;
     case 2:
       // ATTENTION THIS MUST BE REMOVED, ONLY USED TO GO DIRECTLY TO STATE 4 TO TEST
-      // Coverage duration starts at 0 on purpose: the buoy has not run the pass
-      // prediction yet, so there is no reason to believe a satellite is overhead.
-      // With duration 0 the first wake sends only the GPS position, runs the SPP,
-      // and from then on wakes up for real passes with the data file.
       currentState = ST_DM;
       eepromSaveState(currentState);
-      SetCoverageDurationTo_0();
       SetCoverageStateTo(1);
+
+      // A second press picks what the buoy believes about coverage on its first
+      // wake, which is the whole difference between starting a real deployment
+      // and checking the pass prediction indoors.
+      SerialPrintDebugln("DM selected. Choose the start condition:");
+      SerialPrintDebugln("  PB_1 = real test  - no coverage assumed. First wake sends the GPS position");
+      SerialPrintDebugln("                      and runs the SPP, then wakes for actual passes.");
+      SerialPrintDebugln("  PB_2 = bench test - 100 s of coverage. It transmits straight away so the");
+      SerialPrintDebugln("                      SPP can be watched on the bench.");
+      SerialPrintDebugln("  (no press in 15 s defaults to the real test)");
+
+      if (waitForButtonChoice(15000) == 2) {
+        eepromSaveTimeCoverage(100);
+        writeLogFile("DM start via PB_2: BENCH test, 100 s of assumed coverage");
+        SerialPrintDebugln("-> BENCH test: 100 s of assumed coverage");
+      } else {
+        // Coverage duration 0: the buoy has not run the pass prediction yet, so
+        // there is no reason to believe a satellite is overhead.
+        SetCoverageDurationTo_0();
+        writeLogFile("DM start via PB_2: REAL test, no coverage assumed");
+        SerialPrintDebugln("-> REAL test: no coverage assumed");
+      }
+
       SetCounterFailGPSTo_0();
       SetCounterFailWIFITo_0();
-      SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state 4 with no coverage.");
+      SerialPrintDebugln("You can switch off the board now, buoy ready to start the test from state 4.");
       delay(10000);
       break;
     case 3:
