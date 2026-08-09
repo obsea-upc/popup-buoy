@@ -3,6 +3,7 @@
 #include "logging.h"
 #include "KIM.h"
 #include "ARRIBADA.h"
+#include "adc.h"        // for Vin_ADC, to tell a flat supply from a real failure
 #include <SD.h>
 #include <string.h>
 #include <ctype.h>
@@ -400,6 +401,29 @@ bool satModuleSendData(const char *hexPayload) {
       // Retry only on total silence. A message that came back +OK was accepted
       // by the module and must never be sent twice.
       RetStatusARRIBADATypeDef st = Arribada.send_data(padded, paddedLen);
+
+      // A supply that cannot fire the PA looks identical to a swallowed message
+      // in the log, but it is not a fault and retrying cannot help - the module
+      // is fine, it simply has no power to transmit with. Say so plainly and
+      // move on instead of burning two 8 s timeouts per message.
+      //
+      // All three have to hold before we blame the supply, so that nothing else
+      // hides behind this message:
+      //   - the module said NOTHING (a real reply, even an error, is not this)
+      //   - it was a timeout, not an error or an unrecognised answer
+      //   - the measured supply is genuinely too low to key the PA
+      // With a healthy battery, silence still means a swallowed message and is
+      // still retried, which is what the 108-transmission workaround needs.
+      if (st == TIMEOUT_ARRIBADA
+          && Arribada.last_response()[0] == '\0'
+          && Vin_ADC < SAT_TX_MIN_SUPPLY_V) {
+        writeLogFile("ARRIBADA NO_TX_POWER: supply is " + String(Vin_ADC, 2)
+                     + " V, the module answers commands but cannot key the transmitter. "
+                     + "Arribada require battery power for uplink - this is expected on USB "
+                     + "alone and not a fault. Skipping the retry.");
+        return false;
+      }
+
       if (st != OK_ARRIBADA) {
         writeLogFile("ARRIBADA TX_SWALLOWED (status " + String((int)st) + ") last=["
                      + String(Arribada.last_response()) + "] - retrying once");

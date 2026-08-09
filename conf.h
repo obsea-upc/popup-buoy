@@ -97,7 +97,13 @@ inline const char* stateName(int s) {
 // after power was restored. The 5 ms that used to be here meant the firmware was
 // talking to a module that was still booting, so AT+KMAC came back with the boot
 // banner instead of +OK and the AT+TX after it was refused with +ERROR=253.
-#define SAT_MODULE_BOOT_MS 1000 
+#define SAT_MODULE_BOOT_MS 1000
+// Below this the supply cannot fire the Argos power amplifier. Arribada document
+// battery power as required for uplink - USB alone is enough to talk to the
+// module but not to transmit - and it shows exactly that way: every command is
+// answered normally and then AT+TX gets total silence. Measured on the bench,
+// 2.1 V with no battery fails every single time and 4.55 V on cells never does.
+#define SAT_TX_MIN_SUPPLY_V 3.0f 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds 
 #define CRIT_FACTOR 3                 // In stage 5, critical battery, all sleep times are X times larger
 
