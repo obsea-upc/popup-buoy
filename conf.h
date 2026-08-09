@@ -91,7 +91,13 @@ inline const char* stateName(int s) {
 // deep-sleeps instead. The retry was unbounded and cost both buoys more than five
 // hours of the 9 Aug test, awake, recomputing a prediction that could not succeed.
 #define SPP_MAX_RETRIES 3
-#define SPP_GIVEUP_SLEEP_S 600  // sleep after giving up, then retry with a fresh GPS fix 
+#define SPP_GIVEUP_SLEEP_S 600  // sleep after giving up, then retry with a fresh GPS fix
+// How long the peripherals need after their rail comes back before they will
+// answer. Measured on the Arribada 9 Aug 2026: it first replied to AT+ID 482 ms
+// after power was restored. The 5 ms that used to be here meant the firmware was
+// talking to a module that was still booting, so AT+KMAC came back with the boot
+// banner instead of +OK and the AT+TX after it was refused with +ERROR=253.
+#define SAT_MODULE_BOOT_MS 1000 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds 
 #define CRIT_FACTOR 3                 // In stage 5, critical battery, all sleep times are X times larger
 

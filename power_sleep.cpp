@@ -79,7 +79,13 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
       ConnectPeripherals(true, GPS_KIM);
       delay(5);
       ConnectPeripherals(true, SD_card);
-      delay(5);
+      // Give the satellite module time to boot before anyone talks to it. Now
+      // that the rail really does switch off, it restarts on every one of these
+      // and it is not ready for 482 ms. With the 5 ms that used to be here, the
+      // AT+KMAC sent straight after came back as the module's boot banner rather
+      // than +OK, so the profile was never set and the next AT+TX was refused
+      // with +ERROR=253 - a whole DM cycle lost per message.
+      delay(SAT_MODULE_BOOT_MS);
       // The port has to be reopened here. gpsAcquireData() does not open it - it
       // is opened once at boot and once in gpsAcquireSatellites, neither of which
       // runs again in DM - so without this the receiver would go silent for the
