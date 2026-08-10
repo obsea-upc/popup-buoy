@@ -52,13 +52,10 @@ void runSatellitePassPrediction(bool lowPower) {
         SPP_progress=false;
       }
       // --- HANDLING THE OVERLAPPING AND THE SPP ERRORS ---
-      // A pass that is already running is still a pass. The old threshold of 70 s
-      // threw away anything shorter, and on the 9-10 Aug run that was every one
-      // of the ten SPP errors: the buoy finished a burst, found the same pass
-      // with 32 s left, refused it, slept 60 s and lost it. If there is time for
-      // even one more message, keep transmitting - the satellite is overhead now
-      // and the next chance is twenty minutes away.
-      if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite >= SPP_MIN_USABLE_COVERAGE_S) {  // To be able to use the current coverage
+      // Reuse a pass that is already running, provided enough of it is left to be
+      // worth restarting the cycle for - see SPP_MIN_USABLE_COVERAGE_S in conf.h
+      // for why that bar is deliberately not one message.
+      if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite > SPP_MIN_USABLE_COVERAGE_S) {  // To be able to use the current coverage
         Decimal_CoverageDuration += secondsBeforeNextStatellite;                                             // To get the duration left on the coverage
         eepromSaveTimeCoverage(Decimal_CoverageDuration);
         writeLogFile("SPP is overlapping, starting state " + String(lowPower ? 5 : 4) + " again.");
