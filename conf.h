@@ -90,6 +90,10 @@ inline const char* stateName(int s) {
 // How many times the pass prediction may fail before the buoy stops retrying and
 // deep-sleeps instead. The retry was unbounded and cost both buoys more than five
 // hours of the 9 Aug test, awake, recomputing a prediction that could not succeed.
+// Shortest remaining slice of a pass still worth transmitting into. One message
+// fits in INTERVAL_MS, so anything from there up is worth taking: the satellite
+// is overhead now and the next pass is twenty minutes away.
+#define SPP_MIN_USABLE_COVERAGE_S (INTERVAL_MS / 1000)
 #define SPP_MAX_RETRIES 3
 #define SPP_GIVEUP_SLEEP_S 600  // sleep after giving up, then retry with a fresh GPS fix
 // How long the peripherals need after their rail comes back before they will

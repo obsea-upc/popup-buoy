@@ -52,7 +52,13 @@ void runSatellitePassPrediction(bool lowPower) {
         SPP_progress=false;
       }
       // --- HANDLING THE OVERLAPPING AND THE SPP ERRORS ---
-      if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite > 70) {  // To be able to use the current coverage
+      // A pass that is already running is still a pass. The old threshold of 70 s
+      // threw away anything shorter, and on the 9-10 Aug run that was every one
+      // of the ten SPP errors: the buoy finished a burst, found the same pass
+      // with 32 s left, refused it, slept 60 s and lost it. If there is time for
+      // even one more message, keep transmitting - the satellite is overhead now
+      // and the next chance is twenty minutes away.
+      if (secondsBeforeNextStatellite <= 0 && Decimal_CoverageDuration + secondsBeforeNextStatellite >= SPP_MIN_USABLE_COVERAGE_S) {  // To be able to use the current coverage
         Decimal_CoverageDuration += secondsBeforeNextStatellite;                                             // To get the duration left on the coverage
         eepromSaveTimeCoverage(Decimal_CoverageDuration);
         writeLogFile("SPP is overlapping, starting state " + String(lowPower ? 5 : 4) + " again.");
@@ -208,10 +214,17 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   // 1A in a Kineis AOP, and 0xA came out as "MA" on 9 Aug when it was a nanosat.
   // parseLine() already stores the first column of each AOP line in entryName,
   // so the file itself is the answer and stays right whatever fleet is loaded.
+  //
+  // Compare only the low 6 bits: SatelliteNextPassPrediction_t stores the id in
+  // a 6-bit field (previpass.h:368, "[0x01..0x3F]"), so anything above 0x3F comes
+  // back truncated. That is why yesterday's fix only named four of them - 1A
+  // (0x0B), 1C (0x1D), 1E (0x2C) and 2A (0x31) are the AOP entries that fit,
+  // and every other satellite printed as XX. The low 6 bits are unique across
+  // this Kineis AOP, so masking identifies them without ambiguity.
   char satNameTwoChars[sizeof(aopTable[0].entryName)];
   strcpy(satNameTwoChars, "XX");
   for (uint8_t i = 0; i < nbSatsInAopTable; i++) {
-    if (aopTable[i].satHexId == earliestPass.satHexId) {
+    if ((aopTable[i].satHexId & 0x3F) == (earliestPass.satHexId & 0x3F)) {
       strncpy(satNameTwoChars, aopTable[i].entryName, sizeof(satNameTwoChars) - 1);
       satNameTwoChars[sizeof(satNameTwoChars) - 1] = '\0';
       break;

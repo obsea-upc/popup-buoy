@@ -161,7 +161,13 @@ void SendGPSMessage(int timeSending) {
   // calls this with timeSending=30 for a 60 s cycle, which rounds down to zero,
   // so keep at least one - FRM sends exactly one message per loop iteration and
   // does its own repeating.
-  int sendRepeat = timeSending / (cycleMs / 1000);
+  // Round the count UP, not down. A 3 min 29 s window divided by 30 s is 6.97,
+  // and taking 6 threw away a message the satellite was still overhead for. The
+  // last one runs a little past the predicted end of the pass, which is the right
+  // side to err on: the pass boundary is a prediction, and a message that goes
+  // out slightly late still has a satellite to hear it.
+  const int cycleSeconds = cycleMs / 1000;
+  int sendRepeat = (timeSending + cycleSeconds - 1) / cycleSeconds;
   if (sendRepeat < 1) sendRepeat = 1;
 
   sendGPSviaKIM(sendRepeat, cycleMs);
@@ -275,7 +281,10 @@ void SendFileKim(int time_to_send) {
   } else {
     SerialPrintDebugln("The SD card has been opened");
 
-    NbrMsgToSend = time_to_send / (INTERVAL_MS / 1000);           // The time to send is divided by the time (in sec) to send one message (Maybe we should adjust the time a bit)
+    // Rounded UP, same reasoning as SendGPSMessage: the leftover seconds of a
+    // pass are worth one more data line, and overrunning the predicted end by a
+    // few seconds costs nothing while stopping short costs a message.
+    NbrMsgToSend = (time_to_send + (INTERVAL_MS / 1000) - 1) / (INTERVAL_MS / 1000);
     while (NbrMsgToSend > 0) {                                    // Looping the instructions until the time is over, until there are no messages to send
       int row = RowProgress;
       while (row <= MaxRowDataFile) {  // Loop to get all the row from the data_file
