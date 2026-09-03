@@ -165,9 +165,12 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
     // 96 s at 60 deg from another. The short reading then fell under
     // minPassDurationMinute and the pass was dropped entirely - which is how a
     // near-zenith pass went missing while the buoy slept toward a 39 deg one.
-    // Measured on hardware: 10 s and 5 s agree exactly, 1 s confirms within
-    // 4 s and 1 deg, and the cost is 26 ms per satellite instead of 9.
-    10                                                                //< Computation step
+    // Measured on hardware: 10 s and 5 s agree exactly and 1 s confirms within
+    // 4 s and 1 deg. 5 s is used rather than 10 because the library jumps ahead
+    // 20 steps while the satellite is still far away, and at 10 s that jump is
+    // 200 s - longer than the shortest passes worth having. At 5 s it is 100 s.
+    // Costs 53 ms per satellite against 9; irrelevant next to losing a pass.
+    5                                                                //< Computation step
   };
 
   struct SatelliteNextPassPrediction_t nextPass;
