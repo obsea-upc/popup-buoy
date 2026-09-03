@@ -79,7 +79,7 @@
   int fileSendingTime;
   int waitSendingTime;
   String number = "";
-  float MinElev;
+  float MinElev = stdMinElev;   // conf.txt overrides; this is what an unreadable card falls back on
   float Bat_critlevel;
 
 //------ GPS Acquiring Parameters now owned by gps.cpp (declared in gps.h) ---------------------------------------------

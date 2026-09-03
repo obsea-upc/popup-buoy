@@ -134,6 +134,12 @@ inline const char* stateName(int s) {
 // number. A message sent while the satellite sits at 38 deg is better recorded
 // as 38 deg than as "nothing there" because the planner happened to run at 45.
 #define SPP_ATTRIBUTION_MIN_ELEV 5.0f
+
+// Print the whole day's session table over serial on every prediction, marking
+// the one taken and the ones passed over as too small. Serial only, and only
+// with SERIAL_DEBUG on, so it costs nothing on a deployed buoy - but comment it
+// out once the plan has been eyeballed enough, because it is a lot of lines.
+#define SPP_DUMP_PLAN
 // How long the peripherals need after their rail comes back before they will
 // answer. Measured on the Arribada 9 Aug 2026: it first replied to AT+ID 482 ms
 // after power was restored. The 5 ms that used to be here meant the firmware was
@@ -182,6 +188,15 @@ inline const char* stateName(int s) {
 #define KIM_TXD0 17
 #define KIMBaud 9600  //4800 in prev KIM1
 #define maxAOPSize 30  //Maxim number of satellites in AOP tamble
-//#define stdMinElev 20.0f                                                                                                                                 // SD
+// Operating elevation floor, and the value MinElev falls back on when conf.txt
+// cannot be read - it had no initialiser at all, which left it at zero and would
+// have had the buoy wake for every pass above the horizon.
+//
+// 25 rather than the 30 used through August. Measured over the 3 Sep AOP: awake
+// time per reconstructable image is nearly flat from 20 to 40 deg, so the floor
+// buys latency rather than energy. At 25 an image goes out every 1.9 days at
+// 24 % duty against 3.0 days at 16 % for 30, for the same energy per image, and
+// 25 is still inside the range the reception tests actually covered.
+#define stdMinElev 25.0f                                                                                                                                 // SD
 #define critMinElev 45.0f                                                                                                                               // SD
 #define FORCE_A2_UPLINK_STATUS

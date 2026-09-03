@@ -300,32 +300,59 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
     if (end <= nowUnix) continue;            // already over
     sessionsSeen++;
 
+    bool worthIt;
     if (start <= nowUnix) {
       // Already under way. No wake to decide on - the question is only whether
       // enough is left to be worth restarting the transmit cycle, which is the
       // same bar the caller applies in its overlap branch. Checking it here as
       // well means a session too far gone is passed over for the next one
       // instead of being handed back to be rejected and retried.
-      if ((long)(end - nowUnix) < SPP_MIN_USABLE_COVERAGE_S) {
-        sessionsSkipped++;
-        continue;
-      }
+      worthIt = (long)(end - nowUnix) >= SPP_MIN_USABLE_COVERAGE_S;
     } else {
       // Matias's rule: stacked short passes are worth a wake, an isolated one is
       // not. Measured over the whole session, so the two cases separate
       // themselves without the planner having to tell them apart.
-      if (sppMessagesIn((long)(end - start)) < SPP_MIN_DATA_MSGS) {
-        sessionsSkipped++;
-        continue;
-      }
+      worthIt = sppMessagesIn((long)(end - start)) >= SPP_MIN_DATA_MSGS;
+    }
+    if (!worthIt) sessionsSkipped++;
+
+    const bool takeThis = worthIt && !sessionFound;
+    if (takeThis) {
+      sessionStart = start;
+      sessionEnd   = end;
+      sessionFirst = first;
+      sessionCount = count;
+      sessionFound = true;
     }
 
-    sessionStart = start;
-    sessionEnd   = end;
-    sessionFirst = first;
-    sessionCount = count;
-    sessionFound = true;
-    break;
+    // The whole day is enumerated even after the answer is found. It costs a few
+    // dozen more iterations of arithmetic, it makes the counts logged below
+    // describe the day rather than only the part before the first hit, and it is
+    // what the dump prints. Serial only - a session table on every wake would
+    // bury the SD log, and this disappears entirely without SERIAL_DEBUG.
+    #ifdef SPP_DUMP_PLAN
+      if (sessionsSeen == 1) {
+        SerialPrintDebugln("SPP plan (" + String(sppNbPasses) + " passes above "
+                           + String(MinElev) + " deg):");
+        SerialPrintDebugln("   when      dur  msgs  what");
+      }
+      {
+        struct CalendarDateTime_t d;
+        PREVIPASS_UTIL_date_stu90_calendar(start - EPOCH_90_TO_70_OFFSET, &d);
+        String row = String(takeThis ? " -> " : "    ")
+                   + (d.gpsHour < 10 ? "0" : "") + String(d.gpsHour) + ":"
+                   + (d.gpsMinute < 10 ? "0" : "") + String(d.gpsMinute) + ":"
+                   + (d.gpsSecond < 10 ? "0" : "") + String(d.gpsSecond)
+                   + "  " + String(end - start) + "s  "
+                   + String(sppMessagesIn((long)(end - start))) + "  ";
+        for (uint16_t k = 0; k < count; k++) {
+          row += String(aopTable[sppPasses[first + k].sat].entryName) + "("
+               + String(sppPasses[first + k].elev) + ") ";
+        }
+        if (!worthIt) row += " [too small]";
+        SerialPrintDebugln(row);
+      }
+    #endif
   }
 
   if (!sessionFound) {
