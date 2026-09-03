@@ -165,6 +165,7 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   struct SatelliteNextPassPrediction_t nextPass;
   struct SatelliteNextPassPrediction_t earliestPass;
   bool passFound = false;
+  uint8_t earliestIdx = 0;   // which AOP entry produced earliestPass, for the name
 
   for (uint8_t i = 0; i < nbSatsInAopTable; i++) {
     // PREVIPASS returns false when it finds no pass for this satellite, and that
@@ -186,6 +187,7 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
     }
     if (!passFound || nextPass.epoch < earliestPass.epoch) {
       earliestPass = nextPass;
+      earliestIdx = i;
       passFound = true;
       delay(100);
     }
@@ -202,31 +204,22 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   //messageLogFile = "For the SPP : Next satellite epoch : " + String(earliestPass.epoch) + " and epoch now : " + String(now.unixtime());
   //writeLogFile(messageLogFile);
 
-  //! Sat name, read back from the AOP file rather than from a fixed table.
+  //! Sat name, taken from the AOP entry that actually produced this pass.
   //
-  // This used to switch on satHexId against a hardcoded list - 03, A1, MA, MB,
-  // MC, NK, NN, NP, SR - which is the legacy Argos fleet: MetOp, NOAA, SARAL.
-  // It knows nothing about the Kineis nanosats, so with a Kineis AOP every pass
-  // printed as "XX". Worse, the ids overlap: 0xB is MetOp-C in that table but is
-  // 1A in a Kineis AOP, and 0xA came out as "MA" on 9 Aug when it was a nanosat.
-  // parseLine() already stores the first column of each AOP line in entryName,
-  // so the file itself is the answer and stays right whatever fleet is loaded.
+  // Not looked up from the returned id, because that id cannot identify a
+  // satellite on its own: SatelliteNextPassPrediction_t stores it in a 6-bit
+  // field (previpass.h, "[0x01..0x3F]"), so everything above 0x3F comes back
+  // truncated. Masking to 6 bits appeared to work in August only because the AOP
+  // then held Kineis satellites alone. With the legacy ones loaded the low bits
+  // collide - 2A (0x31) against CS (0xF1) both give 49, and 5C (0xBB) against
+  // MC (0xFB) both give 59 - and passes come out labelled with the wrong
+  // satellite. Measured against a CLS export on the 3 Sep AOP: twelve of 144.
   //
-  // Compare only the low 6 bits: SatelliteNextPassPrediction_t stores the id in
-  // a 6-bit field (previpass.h:368, "[0x01..0x3F]"), so anything above 0x3F comes
-  // back truncated. That is why yesterday's fix only named four of them - 1A
-  // (0x0B), 1C (0x1D), 1E (0x2C) and 2A (0x31) are the AOP entries that fit,
-  // and every other satellite printed as XX. The low 6 bits are unique across
-  // this Kineis AOP, so masking identifies them without ambiguity.
+  // The loop above already asks one satellite at a time, so the answer is just
+  // which entry won. No lookup, no ambiguity, correct for any fleet.
   char satNameTwoChars[sizeof(aopTable[0].entryName)];
-  strcpy(satNameTwoChars, "XX");
-  for (uint8_t i = 0; i < nbSatsInAopTable; i++) {
-    if ((aopTable[i].satHexId & 0x3F) == (earliestPass.satHexId & 0x3F)) {
-      strncpy(satNameTwoChars, aopTable[i].entryName, sizeof(satNameTwoChars) - 1);
-      satNameTwoChars[sizeof(satNameTwoChars) - 1] = '\0';
-      break;
-    }
-  }
+  strncpy(satNameTwoChars, aopTable[earliestIdx].entryName, sizeof(satNameTwoChars) - 1);
+  satNameTwoChars[sizeof(satNameTwoChars) - 1] = '\0';
 
   struct CalendarDateTime_t viewable_timedata;
 
