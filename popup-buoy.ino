@@ -710,6 +710,11 @@ void loop() {
         gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
         gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
 
+      // --- WHICH SATELLITE IS ACTUALLY OVERHEAD --- so every message below can be
+      // logged with the geometry it went out under. Uses the fix just taken and
+      // the current clock, so it also double-checks the prediction made a cycle ago.
+        sppBeginSession(gpsLat, gpsLong, SPP_ATTRIBUTION_MIN_ELEV, CoverageState == 1 ? Decimal_CoverageDuration : 0);
+
       // --- SENDING MESSAGES PART ---
         if (CoverageState == 0 ) {
           SendGPSMessage(timeSending);   // We don't care when the message is sent because there's no ARGOS coverage
@@ -779,6 +784,9 @@ void loop() {
         gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
         adcAcquireData(ADCreadHex);
         gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
+
+      // --- WHICH SATELLITE IS ACTUALLY OVERHEAD --- same as state 4, at critMinElev
+        sppBeginSession(gpsLat, gpsLong, SPP_ATTRIBUTION_MIN_ELEV, CoverageState == 1 ? Decimal_CoverageDuration : 0);
 
       // --- SENDING MESSAGES PART --- this can be moved down
 

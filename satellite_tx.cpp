@@ -4,6 +4,8 @@
 #include "power_sleep.h"    // for goToSleep
 #include "eeprom_store.h"   // for eepromReadState
 #include "sat_module.h"     // KIM1 / Arribada abstraction; nothing here talks to a driver directly
+#include "satellite_spp.h"  // for the pass overhead at the moment of each transmission
+#include <RTClib.h>
 #include <SD.h>
 
 // Objects/data owned by other modules.
@@ -11,10 +13,19 @@ extern int currentState;
 extern double gpsLat, gpsLong;
 extern uint32_t epochTime;
 extern char ADCreadHex[3];
+extern RTC_DS3231 rtcExt;
 
 // KIM transmission parameters owned by this module (PWR2/PWR3/AFMT/delayKIM declared extern in satellite_tx.h).
 char PWR2[10] = "1000";  // TX power (raised from 500 to 1000)
-char PWR3[10] = "100";
+// Recovery power. CLS suggest dropping to 500 mW in FRM because the bearing a
+// vessel's goniometer takes at under a kilometre is cleaner without the
+// multipath a full-power carrier throws - it is a trade between being heard by
+// the satellite and being pointed at from the boat, and it belongs in conf.txt
+// where it can be chosen per deployment. The default here is what the buoy falls
+// back on when conf.txt cannot be read, so it is the loud one: at the 100 mW
+// this used to hold, our own power sweep puts frame reception at a few percent,
+// which would leave a surfaced buoy effectively silent to both.
+char PWR3[10] = "1000";
 char AFMT[] = "1";       // enable standard KIM messages
 extern const int delayKIM = 10;  // delay between KIM parameter sets
 char kineisMessage[27];      // GPS/position message buffer (internal)
@@ -84,16 +95,48 @@ static void sleepRestOfCycle(int cycleMs) {
   cycleStartMillis = millis();
 }
 
+// One structured line per transmission, next to the plain MSG_OK/MSG_ERR.
+//
+// writeLogFile already stamps every line with the RTC in UTC, which is the same
+// clock the CLS export is timestamped against, so these join message to message
+// without any correlation guesswork. The point is to record the geometry each
+// message actually went out under - the pass maximum alone cannot do that,
+// because elevation sweeps from the threshold to the maximum and back within a
+// single pass and every message in it would otherwise look identical.
+//
+// Fields: kind, result, satellite, elevation now, pass maximum, seconds into the
+// pass, pass length, power. The last three are the raw ingredients of the
+// elevation estimate, kept so a better model can be fitted offline rather than
+// baking this interpolation into the record for good.
+static void logTransmission(const char *kind, bool ok) {
+  const char *power = (currentState != ST_FRM) ? PWR2 : PWR3;
+
+  SppTxContext_t ctx;
+  String line = "TX;" + String(kind) + ";" + String(ok ? "OK" : "ERR") + ";";
+  if (sppTxContext(rtcExt.now().unixtime(), ctx)) {
+    line += String(ctx.satName) + ";" + String(ctx.elevNow) + ";" + String(ctx.elevMax)
+          + ";" + String(ctx.sinceStart) + ";" + String(ctx.passDur);
+  } else {
+    // Normal for the recovery messages sent with no coverage, and the honest
+    // answer when the pass list could not be built. Never guess a satellite.
+    line += "none;;;;";
+  }
+  line += ";" + String(power);
+  writeLogFile(line);
+}
+
 bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
     currentState = eepromReadState();
-    if (satModuleSendData(kineisMessage)) {
+    const bool ok = satModuleSendData(kineisMessage);
+    if (ok) {
       delay(INTERVAL_SEND_MS);
       writeLogFile(" " + String(satModuleName()) + " MSG_OK");
     } else {
       writeLogFile(" " + String(satModuleName()) + " MSG_ERR");
     }
+    logTransmission("GPS", ok);
     sleepRestOfCycle(waitRepeat);
   }
   return true;
@@ -175,12 +218,14 @@ void SendGPSMessage(int timeSending) {
 
 void SendDataMessage() {
   writeLogFile("Sending : " + String(kineisdataMessage));
-  if (satModuleSendData(kineisdataMessage)) {
+  const bool ok = satModuleSendData(kineisdataMessage);
+  if (ok) {
     delay(INTERVAL_SEND_MS);
     writeLogFile(String(satModuleName()) + " MSG_OK");
   } else {
     writeLogFile(String(satModuleName()) + " MSG_ERR");
   }
+  logTransmission("DATA", ok);
   // Seabed data only ever goes out in DM, so it keeps the 30 s DM spacing.
   sleepRestOfCycle(INTERVAL_MS);
 }

@@ -32,7 +32,14 @@
 //! Memory pool size. Used for linked list. 16 bytes per pass. 35 pass per day.
 //! Min value for function 'PREVIPASS_compute_next_pass' :
 //! 	sizeof(struct SatPassLinkedListElement_t) * nb_sat
-#define MY_MALLOC_MAX_BYTES 20
+//!
+//! Raised from the stock 20 bytes, which holds a single pass and is only enough
+//! for 'PREVIPASS_compute_next_pass'. The planner in satellite_spp.cpp asks for
+//! the full pass list of one satellite at a time over a 24 h window, which is up
+//! to about a dozen passes for a low-orbit satellite, and the pool is reset on
+//! every call so it only ever has to hold one satellite's worth. 1024 bytes is
+//! 64 passes, comfortable margin, and it lives in BSS rather than on the stack.
+#define MY_MALLOC_MAX_BYTES 1024
 
 
 // -------------------------------------------------------------------------- //

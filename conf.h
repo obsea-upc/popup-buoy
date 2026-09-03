@@ -99,6 +99,41 @@ inline const char* stateName(int s) {
 #define SPP_MIN_USABLE_COVERAGE_S 70
 #define SPP_MAX_RETRIES 3
 #define SPP_GIVEUP_SLEEP_S 600  // sleep after giving up, then retry with a fresh GPS fix
+
+// ---- Pass planning --------------------------------------------------------
+// The prediction no longer answers "when is the next pass" but "which wake is
+// worth making". Every pass above MinElev in the next day is listed, passes
+// close enough together are served by a single wake, and a wake that cannot
+// carry enough messages is not made at all.
+
+// Two passes closer than this are served by one wake instead of two. The
+// threshold is what a fresh wake costs, and a wake is dominated by the GPS fix:
+// MAX_GPS_TIMEOUT is 150 s on both cards. Staying awake through a shorter gap is
+// cheaper than sleeping and re-acquiring. This also subsumes the overlapping
+// case, which used to need its own branch.
+#define SPP_MERGE_GAP_S 150
+
+// A wake spends its first seconds on the GPS fix before anything can go out, so
+// the messages a session yields are (duration - fix) / interval.
+#define SPP_GPS_FIX_S 30
+
+// Matias's call, 3 Sep 2026: when planning, look at every pass, because short
+// ones stack into a session and then they are worth having - but never wake for
+// an isolated pass that can only carry three or four data messages. Five is the
+// floor. Note this makes minPassDurationMinute redundant, which is why the
+// prediction below no longer filters on duration.
+#define SPP_MIN_DATA_MSGS 5
+
+// Room for the pass list. A day above 5 deg gives about 120 passes over the
+// whole fleet; above 30 deg, about 50. Static, not on the stack.
+#define SPP_MAX_PASSES 140
+
+// Floor used when logging which satellite a message went out to, deliberately
+// well below any planning floor. Attribution describes what was really overhead;
+// planning decides what is worth waking for, and the two should not share a
+// number. A message sent while the satellite sits at 38 deg is better recorded
+// as 38 deg than as "nothing there" because the planner happened to run at 45.
+#define SPP_ATTRIBUTION_MIN_ELEV 5.0f
 // How long the peripherals need after their rail comes back before they will
 // answer. Measured on the Arribada 9 Aug 2026: it first replied to AT+ID 482 ms
 // after power was restored. The 5 ms that used to be here meant the firmware was
