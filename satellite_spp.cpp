@@ -159,7 +159,15 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
                                                                       //< 1000)
     5,                                                                //< Linear time margin (in minutes/6months) (default
                                                                       //< 5 minutes/6months)
-    30                                                                //< Computation step (default 30s)
+    // 10 s, not the 30 s default. At 30 s the sampling grid is too coarse to
+    // measure a pass properly and the answer depends on when you ask: the same
+    // KINEIS-5E pass of 10 Aug came out as 276 s at 87 deg from one window and
+    // 96 s at 60 deg from another. The short reading then fell under
+    // minPassDurationMinute and the pass was dropped entirely - which is how a
+    // near-zenith pass went missing while the buoy slept toward a 39 deg one.
+    // Measured on hardware: 10 s and 5 s agree exactly, 1 s confirms within
+    // 4 s and 1 deg, and the cost is 26 ms per satellite instead of 9.
+    10                                                                //< Computation step
   };
 
   struct SatelliteNextPassPrediction_t nextPass;
