@@ -686,6 +686,22 @@ void loop() {
       // --- DEFINING IF THERE IS ARGOS COVERAGE AND HOW THE CODE MUST ANSWER ---
         CoverageState = eepromReadCoverageState();  // Read if the buoy is in a time where satellites are passing
 
+        // A coverage window that cannot even hold the GPS message is not a short
+        // pass, it is no pass. The halves either side of the GPS transmission are
+        // (coverage - timeSending) / 2, so a coverage below timeSending makes them
+        // negative and the negative is then handed to SendFileKim() and
+        // goToSleep(). That is where "sending data for -15 seconds" came from,
+        // with the coverage at zero after PB_2 then PB_1. Fold it into the
+        // no-coverage case, which already does the right thing: three GPS
+        // messages and back to sleep.
+        if (CoverageState == 1 && Decimal_CoverageDuration <= timetransm_GPS_s) {
+          writeLogFile("Coverage is " + String(Decimal_CoverageDuration) + " s, too short for the "
+                       + String(timetransm_GPS_s) + " s GPS message. Treating it as no coverage.");
+          CoverageState = 0;
+        }
+
+        waitSendingTime = 0;   // only meaningful once the data file is exhausted, set there
+
         if (CoverageState == 0) {        // no coverage so only sending the GPS data and going back to sleep
           timeSending = timetransm_GPS_noArg_s;              // sec of sending --> if 90 => 3 kineis MSG
           fileSendingTime = 0;
@@ -719,7 +735,13 @@ void loop() {
         if (CoverageState == 0 ) {
           SendGPSMessage(timeSending);   // We don't care when the message is sent because there's no ARGOS coverage
         } else {
-          if (fileSendingTime>0 && RowProgress<MaxRowDataFile) {
+          // <= , not < . The branch above calls the file exhausted at
+          // RowProgress > MaxRowDataFile, so the last row itself - equality -
+          // used to fall between the two tests: it was treated as "still has
+          // data" up there, which left waitSendingTime unset, and as "exhausted"
+          // down here, which then slept on it. Same gap between a > and a < that
+          // the FRM loop below carries a comment about.
+          if (fileSendingTime>0 && RowProgress<=MaxRowDataFile) {
             readSuccessFile();
             SendFileKim(fileSendingTime);  // file sent before the GPS data
           } else { // End of datafile or not Found
@@ -727,7 +749,7 @@ void loop() {
             goToSleep(waitSendingTime);
           }
           SendGPSMessage(timeSending);   // The GPS is sent at the middle of the coverage --> better chance to be received by satellites
-          if (fileSendingTime>0 && RowProgress<MaxRowDataFile) {
+          if (fileSendingTime>0 && RowProgress<=MaxRowDataFile) {
             SendFileKim(fileSendingTime);  // file sent after the GPS data
           } else {
             // No need to sleep again! Directly to sleep to avid innecessary consumption
@@ -770,6 +792,16 @@ void loop() {
 
       // --- DEFINING IF THERE IS ARGOS COVERAGE AND HOW THE CODE MUST ANSWER ---
         CoverageState = eepromReadCoverageState();  // Read if the buoy is in a time where satellites are passing -- IN LOWBAT_MODE always 1 - no recovery messages
+
+        // Milder version of the same inconsistency state 4 hits: coverage flagged
+        // on with a duration of zero. Here it is not negative, it just makes
+        // timeSending zero and sends a single message where three were meant.
+        // The whole window is GPS in this state, so any positive coverage is
+        // usable and only zero has to fall back.
+        if (CoverageState == 1 && Decimal_CoverageDuration <= 0) {
+          writeLogFile("Coverage flagged on but its duration is zero. Treating it as no coverage.");
+          CoverageState = 0;
+        }
 
         if (CoverageState == 0) {        // no ARGOS coverage  -- if no GPS fix in 5 this can happen
           timeSending = timetransm_GPS_noArg_s;              // All time dedicated to transmitt GPS
