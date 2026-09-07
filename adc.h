@@ -15,6 +15,12 @@ void adcSetup();
 // Sample the battery: fills the global Vin_ADC and writes 2 hex chars to ADCreadHex.
 void adcAcquireData(char *ADCreadHex);
 
+// Whether a battery pack is fitted at all, as opposed to being flat. False means
+// the buoy is running off the USB cable with no pack in it, which must not be
+// mistaken for a critical battery - see BAT_ABSENT_V in conf.h. Only meaningful
+// after adcAcquireData() has run this cycle.
+bool batteryPresent();
+
 // Battery voltage and last ADC hex reading (defined in adc.cpp).
 extern float Vin_ADC;
 extern char ADCreadHex[3];

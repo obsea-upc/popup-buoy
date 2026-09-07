@@ -17,6 +17,10 @@ void adcSetup() {
   analogReadResolution(ADC_RESOLUTION);
 }
 
+bool batteryPresent() {
+  return Vin_ADC >= BAT_ABSENT_V;
+}
+
 void adcAcquireData(char *ADCreadHex) {
 
   float R1_ADC = 10; // Resistance R1 value in MΩ
@@ -61,6 +65,14 @@ void adcAcquireData(char *ADCreadHex) {
   SerialPrintDebug(buffer);
   SerialPrintDebugln(" V");
   writeLogFile("Vin (up): " + String(buffer) + " V");
+
+  // Say it out loud rather than leaving it to be inferred from the voltage. A
+  // buoy on the bench reads about 2.1 V and would otherwise look like a critical
+  // battery in the log, which is exactly the confusion this is here to end.
+  if (!batteryPresent()) {
+    writeLogFile("No battery pack detected (below " + String(BAT_ABSENT_V)
+                 + " V): running on external power. Battery alerts suppressed.");
+  }
 
   // DS3231 die temperature (updated internally every 64 s, +-3 C, not ambient-calibrated) --
   // logged each cycle to check the overheating-in-the-sun hypothesis.

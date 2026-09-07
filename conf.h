@@ -151,7 +151,20 @@ inline const char* stateName(int s) {
 // module but not to transmit - and it shows exactly that way: every command is
 // answered normally and then AT+TX gets total silence. Measured on the bench,
 // 2.1 V with no battery fails every single time and 4.55 V on cells never does.
-#define SAT_TX_MIN_SUPPLY_V 3.0f 
+#define SAT_TX_MIN_SUPPLY_V 3.0f
+
+// Below this the pack is not fitted, rather than flat, and the buoy is running
+// on the USB cable. The two cells operate between about 3.6 and 4.2 V and Li-ion
+// is destroyed below 3.0, so a working buoy never legitimately reads down here.
+// What does read here is the divider floating with no pack in it: 2.1 V, the
+// same 2.1 V proven on the bench to fail every transmission while a healthy pack
+// sends fine. Same number as SAT_TX_MIN_SUPPLY_V above, for the same physical
+// reason - there is nothing supplying the module.
+//
+// Worth separating from Bat_critlevel because the right response is opposite:
+// a flat pack should drop to LOWPWR to survive, a missing pack means somebody is
+// working on the bench and dropping to LOWPWR just wastes the session.
+#define BAT_ABSENT_V 3.0f
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds 
 #define CRIT_FACTOR 3                 // In stage 5, critical battery, all sleep times are X times larger
 

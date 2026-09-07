@@ -771,7 +771,11 @@ void loop() {
         }
 
       // --- CHANGING THE BUOY STATE AND SLEEP ---
-        if ( Vin_ADC>Bat_critlevel){  //Battery still ok
+        // batteryPresent() first: with no pack fitted the divider reads about
+        // 2.1 V, which is below any critical level and used to send a buoy sitting
+        // on the bench straight to LOWPWR. That is not a flat battery, it is no
+        // battery, and dropping to survival mode there only wastes the session.
+        if ( Vin_ADC>Bat_critlevel || !batteryPresent()){  //Battery still ok, or no pack fitted at all
           writeLogFile("Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else{  //
@@ -831,7 +835,9 @@ void loop() {
 
       // --- DEFINING THE MAXIUM TIME BETWEEN TWO GPS SENDING ---  NOT USED IN LOWBAT_MODE
       // --- CHANGING THE BUOY STATE AND SLEEP ---
-        if ( Vin_ADC>Bat_critlevel){  //Battery still ok
+        // Same reasoning as state 4: no pack fitted is a bench session, not a
+        // survival case, and it should climb back out to DM rather than stay here.
+        if ( Vin_ADC>Bat_critlevel || !batteryPresent()){  //Battery still ok, or no pack fitted at all
           writeLogFile("Battery OK again. Changing to DM and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else{  //
@@ -854,7 +860,10 @@ void loop() {
         // matching the post-loop check (else if Vin_ADC < Bat_critlevel -> LOWPWR). With > and
         // Bat_critlevel=0, a single Vin_ADC==0 reading exited the loop, ran SPP and fell through to
         // the "ERROR -> DM" branch (equality landed in the gap between > here and < there).
-        while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC >= Bat_critlevel)){  //maxFRM en horas
+        // The no-pack case has to be allowed through here too, or a bench FRM run
+        // on the cable reads 2.1 V and leaves the loop on its first pass without
+        // ever transmitting.
+        while((millis() - initTime < maxFRM*3600*1000) && (Vin_ADC >= Bat_critlevel || !batteryPresent())){  //maxFRM en horas
           adcAcquireData(ADCreadHex);
           gpsAcquireData(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
           gpsSave(gpsLat, gpsLong, gpsYear, gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, epochTime, gpsFix);
@@ -887,7 +896,7 @@ void loop() {
         if((millis() - initTime > maxFRM*3600*1000)) {
           writeLogFile("Fast Recovery Mode timeout! Not recovered for " + String(maxFRM) + " hours, so sleeping for " + String(secondsBeforeNextStatellite) + "seconds and moving to Drifting Mode at DM.");
           sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
-        }else if(Vin_ADC < Bat_critlevel){
+        }else if(Vin_ADC < Bat_critlevel && batteryPresent()){
           writeLogFile("BATTERY ALERT! Sleeping for " + String(secondsBeforeNextStatellite) + " seconds and changing to LOWPWR.");
           sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_LOWPWR);
         }else{
