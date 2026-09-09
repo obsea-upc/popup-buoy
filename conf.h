@@ -86,7 +86,28 @@ inline const char* stateName(int s) {
 //#define BAT_CRIT_LEVEL 3.5
 
 //------ Definition for Sleep mode and parameters
-#define TIME_LESS_BEFORE_AWAKENING 30  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
+// How early the buoy wakes before a predicted pass. Raised from 30 s so the
+// satellite module spends longer powered before it has to transmit.
+//
+// Measured on 8 Sep: the first reception of a session arrived on average 184 s
+// after the first transmission, and that figure barely moved with the geometry -
+// 183 s for passes peaking at 25-49 deg against 186 s for 50-89 deg. Pass
+// geometry cannot produce a constant like that; a transmitter settling after its
+// rail comes back can, and goToSleep() cuts GPS_KIM between DM wakes so the
+// module starts cold every single session. At 30 s it only had the boot and the
+// GPS fix - about 50 s - before the first message went out.
+//
+// 120 s is a deliberate half-step rather than the ~230 s the measurement points
+// at: it more than doubles the warm-up while staying far below the shortest gap
+// between two sessions (about 17 minutes in the 8 Sep plan), so nothing else in
+// the schedule moves. The cost is idle module current, which is small next to
+// transmitting. The full answer comes from the low-elevation campaign.
+//
+// Note the buoy does not wait for the pass to open - it transmits as soon as it
+// is ready - so the first messages now go out slightly before the predicted
+// start. That is not a new loss: the first three messages of every session were
+// already never received.
+#define TIME_LESS_BEFORE_AWAKENING 120  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
 // How many times the pass prediction may fail before the buoy stops retrying and
 // deep-sleeps instead. The retry was unbounded and cost both buoys more than five
 // hours of the 9 Aug test, awake, recomputing a prediction that could not succeed.
