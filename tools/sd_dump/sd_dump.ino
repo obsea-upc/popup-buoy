@@ -89,6 +89,9 @@ void setup() {
 
   for (uint8_t i = 0; i < NFILES; i++) dumpFile(FILES[i]);
 
+  // Unmount before anything can reset the board: a card left mounted is how a
+  // half-written FAT survives into the next power cycle.
+  SD.end();
   Serial.println("===DUMP COMPLETE===");
 }
 

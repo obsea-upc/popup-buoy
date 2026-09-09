@@ -253,8 +253,30 @@ void setup() {
       //pinMode(19, INPUT_PULLUP); //pullup GPIO2 for SD_MMC mode, you need 1-15kOm resistor connected to GPIO2 and GPIO19
       SD.end();
       delay(500);
-      //Check if SD starts correctly, else exit setup
-      if (!SD.begin()) {
+
+      // Power-cycle the card and retry rather than giving up on the first
+      // attempt. SD.end() releases the SPI bus but leaves the card itself
+      // initialised, and a card in that state can refuse a fresh SPI init - on
+      // 9 Sep the buoy came back "Card Mount Failed" over and over while the
+      // bench tools, which do cut the rail, mounted the same card every time.
+      //
+      // This matters more than it looks. The old behaviour was to return out of
+      // setup(), which skips the RTC, GPS and satellite module configuration and
+      // drops into the state machine half initialised - and at sea that is the
+      // whole deployment lost with nothing in the log to say why.
+      bool sdMounted = false;
+      for (uint8_t attempt = 0; attempt < 4 && !sdMounted; attempt++) {
+        if (attempt > 0) {
+          SerialPrintDebugln("  Card Mount Failed, power-cycling the card");
+          SD.end();
+          ConnectPeripherals(false, SD_card);
+          delay(600);
+          ConnectPeripherals(true, SD_card);
+          delay(1200);
+        }
+        sdMounted = SD.begin();
+      }
+      if (!sdMounted) {
         SerialPrintDebugln("  Card Mount Failed");
         return;   //ojo amb aquest return --> posar while?
       }
