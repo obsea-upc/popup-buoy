@@ -46,8 +46,22 @@ char *SD_data_filename;
 const char *SD_progress_filename = "/progressFile.txt";
 File datamsgSD;
 
+// millis() at the end of the previous transmission cycle, i.e. when the last
+// sleep ended. Used to keep the spacing between transmissions constant.
+static uint32_t cycleStartMillis = 0;
+
+// Whether the cadence clock has been started for this wake. Every DM wake is a
+// fresh boot out of deep sleep, so millis() restarts at zero and this has to be
+// armed again each time. Declared up here because configureKIM(), below, clears
+// it before the definitions further down the file.
+static bool cycleArmed = false;
+
 void configureKIM(){
   SerialPrintDebugln("Satellite module Initial Setup ---->");
+
+  // New wake, new millis() base, so the cadence clock has to be re-armed. It is
+  // started at the first transmission rather than here - see beginCycleIfNeeded().
+  cycleArmed = false;
 
   // Works out whether a KIM1 or an Arribada wing is in the socket the first
   // time it runs; afterwards it just returns the cached answer.
@@ -77,9 +91,25 @@ void configureKIM(){
   delay(delayKIM);
 }
 
-// millis() at the end of the previous transmission cycle, i.e. when the last
-// sleep ended. Used to keep the spacing between transmissions constant.
-static uint32_t cycleStartMillis = 0;
+// Starts the cadence clock at the first transmission of a wake.
+//
+// It deliberately does not happen in configureKIM(): the GPS fix runs between
+// there and the first message, and counting those ~45 s as time already spent in
+// the cycle is exactly the defect this removes. sleepRestOfCycle() then saw
+// spent > cycleMs, concluded the cycle was long overdue and took the
+// FRM_MIN_SLEEP_MS floor, so the second message of every session went out about
+// 13 s after the first instead of 30 - under the minimum spacing CLS accepts.
+// Measured on the 8 Sep run: 15 sessions, 15 short gaps, one per session.
+//
+// With the clock armed here, the floor can only be reached when a cycle genuinely
+// overran, and an overrun already provides more than the interval's worth of
+// spacing on its own, so the 5 s floor stays harmless and FRM keeps its cadence.
+static void beginCycleIfNeeded() {
+  if (!cycleArmed) {
+    cycleStartMillis = millis();
+    cycleArmed = true;
+  }
+}
 
 // Sleeps for what is left of a cycleMs-long cycle, counting from when the
 // previous one ended, so messages go out every cycleMs however long the GPS
@@ -128,6 +158,7 @@ static void logTransmission(const char *kind, bool ok) {
 bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
 
   for (int i = 0; i < sendRepeat; i++) {
+    beginCycleIfNeeded();
     currentState = eepromReadState();
     const bool ok = satModuleSendData(kineisMessage);
     if (ok) {
@@ -217,6 +248,7 @@ void SendGPSMessage(int timeSending) {
 }
 
 void SendDataMessage() {
+  beginCycleIfNeeded();
   writeLogFile("Sending : " + String(kineisdataMessage));
   const bool ok = satModuleSendData(kineisdataMessage);
   if (ok) {
