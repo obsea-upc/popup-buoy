@@ -154,7 +154,13 @@ inline const char* stateName(int s) {
 // planning decides what is worth waking for, and the two should not share a
 // number. A message sent while the satellite sits at 38 deg is better recorded
 // as 38 deg than as "nothing there" because the planner happened to run at 45.
-#define SPP_ATTRIBUTION_MIN_ELEV 5.0f
+//
+// 2 rather than 5 since the low-elevation campaign of Sep 2026: with MinElev
+// itself at 5, an attribution floor of 5 was no longer below it, and the first
+// messages of every wake - sent early because TIME_LESS_BEFORE_AWAKENING is 120 s
+// and the firmware does not wait for the pass - logged "none". Those pass edges
+// are exactly what that campaign exists to characterise.
+#define SPP_ATTRIBUTION_MIN_ELEV 2.0f
 
 // Print the whole day's session table over serial on every prediction, marking
 // the one taken and the ones passed over as too small. Serial only, and only
