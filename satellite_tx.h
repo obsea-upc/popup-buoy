@@ -4,7 +4,10 @@
 // KIM (Kineis/ARGOS) module configuration and satellite transmission of GPS + seabed data.
 
 // Configure the KIM module (power per state, message format).
-void configureKIM();
+// Returns false when the module could not be brought up after
+// SAT_MODULE_MAX_ATTEMPTS tries with a power cycle between them; the caller then
+// skips the session instead of transmitting into a module that is not there.
+bool configureKIM();
 
 // Build the Kineis message (hex lat/long/epoch + battery byte or CRC) into kineisMessage.
 void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisMessage, char *ADCreadHex);

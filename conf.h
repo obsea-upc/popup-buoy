@@ -53,7 +53,10 @@ inline const char* stateName(int s) {
 #define SERIAL_DEBUG_BAUDRATE 115200
 
 //------- EEPROM
-#define EEPROM_SIZE 7
+// 8 since the data-file-exhausted flag (EE_ADDR_DATA_DONE) was added: once the
+// seabed file has been sent to the end the buoy becomes a plain drifter and must
+// stay in LOWPWR, which it cannot decide from the battery alone.
+#define EEPROM_SIZE 8
 
 //------ DEFINITIONS for WiFi
 //#define WORK_office // comment when working from home
@@ -97,17 +100,17 @@ inline const char* stateName(int s) {
 // module starts cold every single session. At 30 s it only had the boot and the
 // GPS fix - about 50 s - before the first message went out.
 //
-// 120 s is a deliberate half-step rather than the ~230 s the measurement points
-// at: it more than doubles the warm-up while staying far below the shortest gap
-// between two sessions (about 17 minutes in the 8 Sep plan), so nothing else in
-// the schedule moves. The cost is idle module current, which is small next to
-// transmitting. The full answer comes from the low-elevation campaign.
-//
-// Note the buoy does not wait for the pass to open - it transmits as soon as it
-// is ready - so the first messages now go out slightly before the predicted
-// start. That is not a new loss: the first three messages of every session were
-// already never received.
-#define TIME_LESS_BEFORE_AWAKENING 120  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
+// Back to 60 s after the 17-21 Sep campaign, on two counts. Waking early cannot
+// buy the warm-up it was meant to buy, because goToSleep() drops the GPS_KIM rail
+// between every single message, not just between wakes - the module cold-starts
+// once per transmission and the idle minutes before the first one settle nothing.
+// And there was nothing to warm in the first place: the penalty on the early
+// messages turned out to be the edge of the pass, not the state of the module
+// (see the block further down). So the lead time goes back to covering its one
+// real job, being ready when the pass opens, and stops paying for awake minutes
+// that do nothing. 60 s leaves room for the GPS fix (about 24 s measured) and the
+// module dialogue.
+#define TIME_LESS_BEFORE_AWAKENING 60  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
 // How many times the pass prediction may fail before the buoy stops retrying and
 // deep-sleeps instead. The retry was unbounded and cost both buoys more than five
 // hours of the 9 Aug test, awake, recomputing a prediction that could not succeed.
@@ -173,6 +176,60 @@ inline const char* stateName(int s) {
 // talking to a module that was still booting, so AT+KMAC came back with the boot
 // banner instead of +OK and the AT+TX after it was refused with +ERROR=253.
 #define SAT_MODULE_BOOT_MS 1000
+
+// ---- The bad slot at the start of a session --------------------------------
+// The 17-21 Sep campaign measured a large penalty on the first messages of every
+// session: the first five were received 14.6 % of the time against 41.4 % for
+// messages 11 to 20. It looked like the module warming up - goToSleep() cuts its
+// rail between every message, so it cold-starts about sixty times per session -
+// and it showed on the Arribada too, which ruled out a KIM1 defect.
+//
+// It is not the module. Matias asked the right question: in the sessions that
+// serve several passes the module reaches the second one already warm, so does
+// the penalty go away there? It does not. Controlling for elevation AND for
+// position within the pass, the first pass of a session and the later ones are
+// the same to within noise - first quarter of the pass 12.0 % against 13.8 %,
+// centre 24.3 % against 25.3 %, last quarter 9.0 % against 9.3 %. In sessions of
+// three passes reception does not climb with the pass number, it drifts down
+// (28.0 %, 25.2 %, 22.0 % at the same mean elevation).
+//
+// What the first messages of a session really have in common is that they go out
+// at the EDGE of a pass, where the satellite is far, the Doppler rate is highest
+// and the cosine that interpolates the logged elevation is least honest. Inside
+// the first pass alone, the 0-4 min messages average 15 % of the way into the
+// pass and get 10.3 %; the 4-8 min ones average 41 % of the way in and get
+// 21.7 %. It was the geometry all along.
+//
+// So there is nothing to warm: SETTLE stays at zero. It is kept as a knob only
+// because sleepRestOfCycle() has to know how long the wake path spends before it
+// can transmit, and that has to match power_sleep.cpp.
+#define SAT_MODULE_SETTLE_MS 0
+//
+// Warm-up transmissions were tried here and removed. Matias's call, 22 Sep 2026,
+// and it is the right one: if the start of a pass is a bad slot, the way to stop
+// using it is to raise MinElev, not to spend battery filling it with messages
+// that carry nothing new. The elevation floor does the same job for free - at 15
+// deg it already trims the part of the pass that the 5 deg campaign wasted, and
+// if the starts still look bad in this test the answer is 20 deg, not dummies.
+
+// ---- Module recovery -------------------------------------------------------
+// Buoy 1 was lost on 20 Sep 2026 at 18:15 UTC to a module that stopped answering:
+// detection came back with an empty ID and configureKIM() then span forever in
+// "Failed connexion to satellite module. Retrying in 3s...", awake, never
+// sleeping again. Two days of errors had preceded it. The module may well have
+// been dying, but the firmware turned a dead radio into a dead buoy.
+//
+// Now the rail is cycled between attempts - the only reset we have, since the
+// ESP32 can only switch the relay - and when the module still will not answer
+// the session is abandoned and the buoy sleeps to try again at the next pass.
+// A drifter with no radio still logs, still fixes its position, and can come
+// back; one stuck in a retry loop cannot.
+#define SAT_MODULE_MAX_ATTEMPTS 3     // configuration attempts, each after a power cycle
+#define SAT_MODULE_POWERCYCLE_MS 2000 // rail held down long enough for the module to really drop
+// Consecutive failed transmissions that trigger the same power cycle mid-session.
+// Buoy 1 logged four in a row minutes before it died; three is inside that and
+// well above the isolated failures a healthy module produces.
+#define SAT_MSG_ERR_STREAK 3
 // Below this the supply cannot fire the Argos power amplifier. Arribada document
 // battery power as required for uplink - USB alone is enough to talk to the
 // module but not to transmit - and it shows exactly that way: every command is

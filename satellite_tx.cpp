@@ -56,22 +56,17 @@ static uint32_t cycleStartMillis = 0;
 // it before the definitions further down the file.
 static bool cycleArmed = false;
 
-void configureKIM(){
-  SerialPrintDebugln("Satellite module Initial Setup ---->");
+// Consecutive transmissions the module refused or swallowed. Reset by any
+// success and by a fresh configuration; when it reaches SAT_MSG_ERR_STREAK the
+// rail is cycled mid-session. Buoy 1 logged four failures in a row on 20 Sep
+// 2026 minutes before its module went silent for good - that is the pattern
+// this watches for, while it is still recoverable.
+static int msgErrStreak = 0;
 
-  // New wake, new millis() base, so the cadence clock has to be re-armed. It is
-  // started at the first transmission rather than here - see beginCycleIfNeeded().
-  cycleArmed = false;
-
-  // Works out whether a KIM1 or an Arribada wing is in the socket the first
-  // time it runs; afterwards it just returns the cached answer.
-  satModuleDetect();
-
-  while (!satModuleCheck()) {
-    SerialPrintDebugln("Failed connexion to satellite module. Retriying in 3s...");
-    delay(1000);
-  }
-
+// Applies the per-state power and the message format. Split out of
+// configureKIM() so the recovery path can reapply it after a power cycle
+// without repeating the detection dance.
+static void applyModuleSettings() {
   // All states except Fast Recovery Mode (6) transmit at PWR2.
   // On the Arribada this is a no-op: its firmware has no AT+PWR.
   const char *power = (currentState != ST_FRM) ? PWR2 : PWR3;
@@ -89,6 +84,48 @@ void configureKIM(){
     writeLogFile("Sat Configuration_ERR (format)");
   }
   delay(delayKIM);
+}
+
+// Brings the module up for this wake. Returns false when it cannot be made to
+// answer, and the caller must then skip the session rather than transmit into a
+// module that is not there.
+//
+// This used to be a bare `while (!satModuleCheck()) delay(1000);`. On 20 Sep
+// 2026 buoy 1's module stopped answering and that loop took the buoy with it:
+// awake, retrying every second, never sleeping, never waking again. The retry
+// now has a bound, a real remedy between attempts - cutting the rail, which is
+// the only reset the ESP32 has - and a way out that keeps the buoy alive.
+bool configureKIM(){
+  SerialPrintDebugln("Satellite module Initial Setup ---->");
+
+  // New wake, new millis() base, so the cadence clock has to be re-armed. It is
+  // started at the first transmission rather than here - see beginCycleIfNeeded().
+  cycleArmed = false;
+  msgErrStreak = 0;
+
+  for (int attempt = 1; attempt <= SAT_MODULE_MAX_ATTEMPTS; attempt++) {
+    // Works out whether a KIM1 or an Arribada wing is in the socket the first
+    // time it runs; afterwards it just returns the cached answer.
+    satModuleDetect();
+
+    if (satModuleCheck()) {
+      if (attempt > 1) {
+        writeLogFile("SAT module recovered on attempt " + String(attempt));
+      }
+      applyModuleSettings();
+      return true;
+    }
+
+    writeLogFile("SAT module not answering (attempt " + String(attempt) + "/"
+                 + String(SAT_MODULE_MAX_ATTEMPTS) + ")");
+    if (attempt < SAT_MODULE_MAX_ATTEMPTS) satModulePowerCycle();
+  }
+
+  // Out of attempts. Say so in the plainest words the log has, because this is
+  // the line that will be searched for when a buoy comes back quiet.
+  writeLogFile("SAT MODULE DEAD: no answer after " + String(SAT_MODULE_MAX_ATTEMPTS)
+               + " attempts. Skipping the transmissions of this session.");
+  return false;
 }
 
 // Starts the cadence clock at the first transmission of a wake.
@@ -111,14 +148,51 @@ static void beginCycleIfNeeded() {
   }
 }
 
+// Sends one payload and keeps an eye on whether the module is still there.
+//
+// A single failure is normal - the Arribada swallows one transmission in 108 by
+// design, and the KIM1 has its own bad days. A run of them is not: it is what
+// buoy 1 logged just before its module stopped answering for good. On a run,
+// cut the rail and bring the module back, which is the only reset available,
+// and reapply the settings it lost with its supply.
+static bool sendWithRecovery(const char *payload) {
+  const bool ok = satModuleSendData(payload);
+  if (ok) {
+    msgErrStreak = 0;
+    return true;
+  }
+
+  msgErrStreak++;
+  if (msgErrStreak < SAT_MSG_ERR_STREAK) return false;
+
+  writeLogFile("SAT " + String(msgErrStreak) + " failed transmissions in a row, power-cycling the module");
+  if (satModulePowerCycle()) {
+    applyModuleSettings();
+  } else {
+    writeLogFile("SAT module did not come back. The rest of this session will be lost; the buoy sleeps on.");
+  }
+  // Whether or not it came back, count from zero again: otherwise every
+  // subsequent failure would cycle the rail once more and the session would be
+  // spent rebooting instead of transmitting.
+  msgErrStreak = 0;
+  return false;
+}
+
 // Sleeps for what is left of a cycleMs-long cycle, counting from when the
 // previous one ended, so messages go out every cycleMs however long the GPS
 // search and the module dialogue took. Before this, a slow fix and a slow reply
 // were simply added on top of a full-length sleep, and FRM could go a minute and
 // a half between messages while trying to transmit as often as possible.
+//
+// The module's boot time is subtracted as well, because it is spent after this
+// sleep returns and before the next transmission can go out: without it the real
+// spacing was a second longer than the 30 s asked for. Whatever the wake path
+// waits in power_sleep.cpp is what has to be subtracted here - they must agree,
+// or the cadence drifts under the minimum spacing CLS accepts.
 static void sleepRestOfCycle(int cycleMs) {
   const uint32_t spent = millis() - cycleStartMillis;
-  int32_t sleepMs = (int32_t)cycleMs - (int32_t)spent;
+  const int32_t wakeCost = (currentState != ST_FRM) ? (SAT_MODULE_BOOT_MS + SAT_MODULE_SETTLE_MS) : 0;
+  int32_t sleepMs = (int32_t)cycleMs - (int32_t)spent - wakeCost;
   if (sleepMs < FRM_MIN_SLEEP_MS) sleepMs = FRM_MIN_SLEEP_MS;
 
   goToSleep(sleepMs / 1000);
@@ -155,22 +229,30 @@ static void logTransmission(const char *kind, bool ok) {
   writeLogFile(line);
 }
 
-bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
+// Transmits the position message sendRepeat times. `kind` only changes the tag
+// written to the log, so the warm-up shots can be told apart from the position
+// messages proper when the campaign is analysed - they are the same message on
+// the air.
+static bool sendPositionBurst(int sendRepeat, int waitRepeat, const char *kind) {
 
   for (int i = 0; i < sendRepeat; i++) {
     beginCycleIfNeeded();
     currentState = eepromReadState();
-    const bool ok = satModuleSendData(kineisMessage);
+    const bool ok = sendWithRecovery(kineisMessage);
     if (ok) {
       delay(INTERVAL_SEND_MS);
       writeLogFile(" " + String(satModuleName()) + " MSG_OK");
     } else {
       writeLogFile(" " + String(satModuleName()) + " MSG_ERR");
     }
-    logTransmission("GPS", ok);
+    logTransmission(kind, ok);
     sleepRestOfCycle(waitRepeat);
   }
   return true;
+}
+
+bool sendGPSviaKIM(int sendRepeat, int waitRepeat) {
+  return sendPositionBurst(sendRepeat, waitRepeat, "GPS");
 }
 
 void maskGPS(double &gpsLat, double &gpsLong, uint32_t &epochTime, char *kineisMessage, char *ADCreadHex) {
@@ -250,7 +332,7 @@ void SendGPSMessage(int timeSending) {
 void SendDataMessage() {
   beginCycleIfNeeded();
   writeLogFile("Sending : " + String(kineisdataMessage));
-  const bool ok = satModuleSendData(kineisdataMessage);
+  const bool ok = sendWithRecovery(kineisdataMessage);
   if (ok) {
     delay(INTERVAL_SEND_MS);
     writeLogFile(String(satModuleName()) + " MSG_OK");

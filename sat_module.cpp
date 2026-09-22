@@ -4,6 +4,8 @@
 #include "KIM.h"
 #include "ARRIBADA.h"
 #include "adc.h"        // for Vin_ADC, to tell a flat supply from a real failure
+#include "power_sleep.h" // for ConnectPeripherals, used by the power cycle below
+#include "gps.h"        // the GPS shares the rail, so a module power cycle reboots it too
 #include <SD.h>
 #include <string.h>
 #include <ctype.h>
@@ -75,8 +77,15 @@ static SatModuleType lookupIDinFile(const char *id) {
     int sep = line.indexOf(';');
     if (sep < 0) continue;
 
+    // Second field only. The file grew a third column (the module's firmware
+    // version, for the record) and a header row on 18 Sep 2026; taking the rest
+    // of the line as the type would turn every entry into "KIM1;KIM1_V2.1" and
+    // silently break the cross-check for the whole fleet. Extra columns and the
+    // header are both ignored: the header's ID matches nothing.
+    int sep2 = line.indexOf(';', sep + 1);
     String fileID = line.substring(0, sep);
-    String fileType = line.substring(sep + 1);
+    String fileType = (sep2 < 0) ? line.substring(sep + 1)
+                                 : line.substring(sep + 1, sep2);
     fileID.trim();
     fileType.trim();
 
@@ -455,4 +464,46 @@ void satModuleEnd() {
   }
   // The KIM driver releases its UART inside set_sleepMode(true), which the
   // existing power-down path already calls.
+}
+
+// --------------------------------------------------------------------------
+// Recovery
+// --------------------------------------------------------------------------
+
+void satModuleForget() {
+  detectedType = SAT_UNKNOWN;
+  moduleID[0] = '\0';
+}
+
+bool satModulePowerCycle() {
+  writeLogFile("SAT module power cycle: dropping the rail for "
+               + String(SAT_MODULE_POWERCYCLE_MS) + " ms");
+
+  // Release the UART before the supply goes, for the reason goToSleep()
+  // documents at length: the ESP32 holds its transmit line high as the idle
+  // level, the current finds its way in through the receiver's ESD clamp and
+  // keeps the shared rail half alive, so the module never really drops and the
+  // cycle achieves nothing.
+  satModuleEnd();
+  kimSerial.end();
+  pinMode(TX_KIM, OUTPUT);
+  digitalWrite(TX_KIM, LOW);
+
+  ConnectPeripherals(false, GPS_KIM);
+  delay(SAT_MODULE_POWERCYCLE_MS);
+  ConnectPeripherals(true, GPS_KIM);
+  delay(SAT_MODULE_BOOT_MS + SAT_MODULE_SETTLE_MS);
+
+  // The receiver came back with the module - it is the same rail - so its port
+  // has to be reopened or the GPS stays silent for the rest of the session.
+  gpsSerialBegin();
+
+  // Probe again from scratch. The cached type is not to be trusted across a
+  // module that has just misbehaved - and if the shield were swapped on the
+  // bench between cycles, this is what notices.
+  satModuleForget();
+  const bool ok = (satModuleDetect() != SAT_UNKNOWN) && satModuleCheck();
+  writeLogFile(ok ? "SAT module answered again after the power cycle"
+                  : "SAT module still silent after the power cycle");
+  return ok;
 }

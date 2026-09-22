@@ -122,3 +122,26 @@ void eepromSaveSyncTime(int syncTime) {
 int eepromReadSyncTime() {
   return EEPROM.read(EE_ADDR_SYNCTIME);
 }
+
+// ------- Data-file-exhausted flag (addr 7) -------
+//
+// Set once the seabed file has been sent to its last row. From then on the buoy
+// has nothing left to say but where it is, so it drops to LOWPWR and stays
+// there: position only, at the critical-mode elevation floor, waking for far
+// fewer passes. Without this flag LOWPWR would bounce straight back to DM on the
+// next wake, because the only thing it checks is the battery - and the battery
+// is fine, it is the data that ran out.
+//
+// Cleared by loading a new data file (the config path) or by hand with the
+// eeprom_state tool. The 17-21 Sep campaign is what this comes from: buoys 3 and
+// 4 finished their file on the 19th at 04:30 and then woke about 170 times a day
+// for the rest of the deployment to send a single position each time, waiting
+// out the empty data window before every one of them.
+void eepromSaveDataDone(bool done) {
+  EEPROM.write(EE_ADDR_DATA_DONE, done ? 1 : 0);
+  EEPROM.commit();
+}
+
+bool eepromReadDataDone() {
+  return EEPROM.read(EE_ADDR_DATA_DONE) == 1;
+}

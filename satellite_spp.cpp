@@ -619,3 +619,26 @@ void printAopTable(const AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable
     }
     SerialPrintDebugln("};");
 }
+
+// ---------------------------------------------------------------------------
+// The session's passes, for scheduling rather than logging
+//
+// sppBeginSession() already computes exactly what the transmit schedule needs -
+// where each pass of this wake starts and how long it lasts - so the peak of
+// each one is the midpoint. Exposed here so the sketch can put a position
+// message on every peak instead of one in the middle of the whole session,
+// which with merged passes can land in the gap between two of them.
+// ---------------------------------------------------------------------------
+
+uint8_t sppSessionPassCount() {
+  return sppSessionNbPasses;
+}
+
+bool sppSessionPass(uint8_t index, uint32_t &peakUnix, uint32_t &endUnix, uint8_t &elevMax) {
+  if (index >= sppSessionNbPasses) return false;
+  const SppPass &p = sppSessionPasses[index];
+  peakUnix = p.start + p.dur / 2;
+  endUnix  = p.start + p.dur;
+  elevMax  = p.elev;
+  return true;
+}

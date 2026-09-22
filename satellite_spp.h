@@ -43,3 +43,14 @@ bool sppTxContext(uint32_t nowUnix, SppTxContext_t &out);
 void parseLine(const String &line, AopSatelliteEntry_t &data);
 void readSatelliteData(AopSatelliteEntry_t *aopTable, uint8_t &nbSatsInAopTable);
 void printAopTable(const AopSatelliteEntry_t *aopTable, uint8_t nbSatsInAopTable);
+
+// ---- The session's passes, for scheduling ---------------------------------
+// Valid after sppBeginSession(). The passes are in time order.
+
+// How many passes this wake covers. Zero when there is no coverage, or when the
+// AOP table could not be read.
+uint8_t sppSessionPassCount();
+
+// Peak (midpoint) and end of pass `index`, as unix seconds on the RTC's clock,
+// plus its maximum elevation. False when the index is out of range.
+bool sppSessionPass(uint8_t index, uint32_t &peakUnix, uint32_t &endUnix, uint8_t &elevMax);

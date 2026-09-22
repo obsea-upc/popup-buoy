@@ -667,6 +667,10 @@ void loop() {
       SerialPrintDebug("Configuration finished for POP_UP_BUOY at state: ");
       SerialPrintDebugln(stateName(currentState));
       SerialPrintDebugln("Moving to DEPLOY.");
+      // A configuration run is how a new data file arrives, so this is where the
+      // drifter flag is cleared. Without it a buoy that finished its last file
+      // would come back from the bench already retired to LOWPWR.
+      eepromSaveDataDone(false);
       changeStateTo(ST_DEPLOY);//change to state 1
       break;
     case ST_DEPLOY:  //DEPLOYMENT -- Deployment sleep
@@ -697,8 +701,14 @@ void loop() {
       writeLogFile("Wakeup");
       // --- INITIALIZING THE STATE 4  ---
       // --- CONFIGURING THE SATELLITE MODULE  ---
-        configureKIM();
-        writeLogFile(String(satModuleName()) + " power changed to 1000");
+        // False means the module would not answer even after its rail was cycled.
+        // The wake carries on regardless - the fix, the log and above all the next
+        // prediction are still worth having - but nothing is transmitted into a
+        // module that is not there, and the buoy sleeps at the end like any other
+        // session instead of spinning here. Buoy 1 was lost to that spin.
+        bool moduleReady;
+        moduleReady = configureKIM();
+        if (moduleReady) writeLogFile(String(satModuleName()) + " power changed to 1000");
       // --- READ EEPROM INFO ABOUT  AND NUMBER OF FILES IN DATAFILE AND THE ACTUAL RowProgress  ---
         Decimal_CoverageDuration = eepromReadCoverageDuration();  // Duration on 2 bytes ; 1 byte would be too short for a number of seconds
         SerialPrintDebugln(" Time of coverage from the comming satellite : " + String(Decimal_CoverageDuration) + String(" sec"));
@@ -735,6 +745,22 @@ void loop() {
             fileSendingTime = 0;
             waitSendingTime = (Decimal_CoverageDuration - timeSending) / 2; // we will wait to ensure the GPS is sent in the midle of Argos
             writeLogFile("Argos coverage OK. DataFile completely sent or not found. Sending GPS for " + String(timeSending) + " seconds. Then go back to sleep.");
+
+            // A file that was read and finished means the mission is over: from
+            // here the buoy is a plain drifter and belongs in LOWPWR, where it
+            // wakes only for the high passes. Flagged in EEPROM because LOWPWR
+            // decides whether to climb back out by looking at the battery, and
+            // the battery is fine - it is the data that ran out.
+            //
+            // Only when the file was really read to its end. MaxRowDataFile is
+            // zero when the card would not mount or the file is missing, and a
+            // transient SD failure must not retire a buoy that still has a
+            // fortnight of data to send. That case keeps today's behaviour:
+            // position only, stay in DM, try the card again next wake.
+            if (MaxRowDataFile > 0 && !eepromReadDataDone()) {
+              eepromSaveDataDone(true);
+              writeLogFile("DataFile finished (" + String(MaxRowDataFile) + " rows). Becoming a drifter: LOWPWR from now on.");
+            }
           }else{
             timeSending = timetransm_GPS_s;                                // XX sec of sending GPS
             fileSendingTime = (Decimal_CoverageDuration - timeSending) / 2;  // In this case we must send the file but GPS is sent at the middle of the coverage so we sent the file before and after
@@ -754,7 +780,9 @@ void loop() {
         sppBeginSession(gpsLat, gpsLong, SPP_ATTRIBUTION_MIN_ELEV, CoverageState == 1 ? Decimal_CoverageDuration : 0);
 
       // --- SENDING MESSAGES PART ---
-        if (CoverageState == 0 ) {
+        if (!moduleReady) {
+          writeLogFile("No satellite module this wake. Nothing transmitted; the fix and the prediction still stand.");
+        } else if (CoverageState == 0 ) {
           SendGPSMessage(timeSending);   // We don't care when the message is sent because there's no ARGOS coverage
         } else {
           // <= , not < . The branch above calls the file exhausted at
@@ -763,18 +791,87 @@ void loop() {
           // data" up there, which left waitSendingTime unset, and as "exhausted"
           // down here, which then slept on it. Same gap between a > and a < that
           // the FRM loop below carries a comment about.
-          if (fileSendingTime>0 && RowProgress<=MaxRowDataFile) {
-            readSuccessFile();
-            SendFileKim(fileSendingTime);  // file sent before the GPS data
-          } else { // End of datafile or not Found
-            writeLogFile("DataFile completely sent or not found. Light sleep for " + String(waitSendingTime) + " to ensure the GPS message is sent at the midle of the coverage.");
-            goToSleep(waitSendingTime);
-          }
-          SendGPSMessage(timeSending);   // The GPS is sent at the middle of the coverage --> better chance to be received by satellites
-          if (fileSendingTime>0 && RowProgress<=MaxRowDataFile) {
-            SendFileKim(fileSendingTime);  // file sent after the GPS data
+          const bool haveData = (fileSendingTime > 0 && RowProgress <= MaxRowDataFile);
+          if (haveData) readSuccessFile();
+
+          // One position message on the peak of every pass this wake covers,
+          // rather than one in the middle of the session.
+          //
+          // The two are the same thing for a single-pass session, but sessions
+          // are merged now - 2.07 passes per wake over the last campaign - and
+          // the middle of a merged session can fall in the gap between two
+          // passes, with nothing overhead to hear it. Measured on that campaign:
+          // the position message went out at 83 % of the pass peak on average,
+          // and one in six below 70 % of it. All the messages carry the same fix,
+          // taken once at the top of the wake: the buoy does not go hunting for
+          // the GPS again in the middle of a session, which is precisely what
+          // merging the passes was meant to avoid.
+          const uint8_t nPasses = sppSessionPassCount();
+
+          if (nPasses == 0) {
+            // No pass list - no AOP table, or nothing above the attribution
+            // floor. Fall back to what the firmware has always done: half the
+            // data, the position in the middle, the other half.
+            writeLogFile("No pass list for this wake, falling back to the position in the middle of the coverage.");
+            if (haveData) {
+              SendFileKim(fileSendingTime);
+            } else {
+              writeLogFile("DataFile completely sent or not found. Light sleep for " + String(waitSendingTime) + " to ensure the GPS message is sent at the midle of the coverage.");
+              goToSleep(waitSendingTime);
+            }
+            SendGPSMessage(timeSending);
+            if (haveData) SendFileKim(fileSendingTime);
+
           } else {
-            // No need to sleep again! Directly to sleep to avid innecessary consumption
+            uint32_t sessionEnd = 0;
+            for (uint8_t k = 0; k < nPasses; k++) {
+              uint32_t peak, end; uint8_t elevMax;
+              if (sppSessionPass(k, peak, end, elevMax) && end > sessionEnd) sessionEnd = end;
+            }
+            uint8_t gpsSent = 0;
+
+            for (uint8_t k = 0; k < nPasses; k++) {
+              uint32_t peak, end; uint8_t elevMax;
+              if (!sppSessionPass(k, peak, end, elevMax)) continue;
+
+              // The pass list is built at the attribution floor (2 deg), which is
+              // deliberately below MinElev so that messages at the edges are still
+              // attributed to a satellite. For scheduling that is too generous: it
+              // can offer a pass that never climbs to MinElev and is not part of
+              // this session at all. A position message belongs on the peak of the
+              // passes the planner actually woke up for.
+              if ((float)elevMax < MinElev) continue;
+
+              const uint32_t nowUnix = rtcExt.now().unixtime();
+              if (end <= nowUnix) continue;    // this pass is already over
+
+              // Data (or plain sleep, with no file left) until this pass's
+              // position window opens, so the message straddles the peak.
+              const int32_t lead = (int32_t)peak - (int32_t)(timeSending / 2) - (int32_t)nowUnix;
+              if (lead > 0) {
+                if (haveData) {
+                  SendFileKim(lead);
+                } else {
+                  goToSleep(lead);
+                }
+              }
+              writeLogFile("Position message on the peak of pass " + String(k + 1) + "/" + String(nPasses)
+                           + " (max " + String(elevMax) + " deg)");
+              SendGPSMessage(timeSending);
+              gpsSent++;
+            }
+
+            // A wake with coverage must never go by without a position, whatever
+            // the pass list turned out to hold - every pass already over, or none
+            // of them reaching MinElev. Send it now rather than not at all.
+            if (gpsSent == 0) {
+              writeLogFile("No pass peak left to aim at. Sending the position now so the wake is not silent.");
+              SendGPSMessage(timeSending);
+            }
+
+            // Everything left of the session goes to data.
+            const int32_t left = (int32_t)sessionEnd - (int32_t)rtcExt.now().unixtime();
+            if (left > 0 && haveData) SendFileKim(left);
           }
         }
 
@@ -797,7 +894,16 @@ void loop() {
         // 2.1 V, which is below any critical level and used to send a buoy sitting
         // on the bench straight to LOWPWR. That is not a flat battery, it is no
         // battery, and dropping to survival mode there only wastes the session.
-        if ( Vin_ADC>Bat_critlevel || !batteryPresent()){  //Battery still ok, or no pack fitted at all
+        if (eepromReadDataDone()) {
+          // Nothing left to send. LOWPWR is the right home for a drifter: it
+          // raises the elevation floor to critMinElev, so the buoy wakes for a
+          // handful of high passes a day instead of every pass above MinElev,
+          // and it stops waiting out an empty data window before each position.
+          // Buoys 3 and 4 spent two days of the last campaign doing exactly that,
+          // about 170 wakes a day for one message each.
+          writeLogFile("DataFile done. Changing to LOWPWR (drifter) and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_LOWPWR);
+        } else if ( Vin_ADC>Bat_critlevel || !batteryPresent()){  //Battery still ok, or no pack fitted at all
           writeLogFile("Going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else{  //
@@ -859,7 +965,14 @@ void loop() {
       // --- CHANGING THE BUOY STATE AND SLEEP ---
         // Same reasoning as state 4: no pack fitted is a bench session, not a
         // survival case, and it should climb back out to DM rather than stay here.
-        if ( Vin_ADC>Bat_critlevel || !batteryPresent()){  //Battery still ok, or no pack fitted at all
+        if (eepromReadDataDone()) {
+          // Here because the data file finished, not because the pack is low, so
+          // the battery test must not climb back out to DM: there is nothing in
+          // DM to do. Load a new data file to bring the buoy back (the config
+          // path clears the flag), or clear it by hand with the eeprom_state tool.
+          writeLogFile("Drifter mode (DataFile done). Staying in LOWPWR, sleeping for " + String(secondsBeforeNextStatellite) + " sec.");
+          sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_LOWPWR);
+        } else if ( Vin_ADC>Bat_critlevel || !batteryPresent()){  //Battery still ok, or no pack fitted at all
           writeLogFile("Battery OK again. Changing to DM and going to sleep for " + String(secondsBeforeNextStatellite) + " sec.");
           sleepSecondsAndGoTo(secondsBeforeNextStatellite, ST_DM);
         }else{  //

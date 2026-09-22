@@ -9,6 +9,7 @@
 #define EE_ADDR_COUNTER_GPS_FAIL  4  // consecutive GPS-fix failures
 #define EE_ADDR_COUNTER_WIFI_FAIL 5  // consecutive WiFi failures
 #define EE_ADDR_SYNCTIME          6  // synctime hour
+#define EE_ADDR_DATA_DONE         7  // 1 = the seabed data file has been sent to the end
 
 // Initialisation
 void initializeEEPROM();
@@ -42,3 +43,7 @@ int  eepromReadCounterWIFIFail();
 // Synctime (addr 6)
 void eepromSaveSyncTime(int syncTime);
 int  eepromReadSyncTime();
+
+// Data-file-exhausted flag (addr 7)
+void eepromSaveDataDone(bool done);
+bool eepromReadDataDone();

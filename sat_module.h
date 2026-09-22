@@ -73,3 +73,16 @@ extern const char *SD_satmodule_filename;
 // manual job (in practice, reflashing the module), not something firmware
 // should be doing on every wake.
 #define SAT_ARRIBADA_EXPECTED_RCONF "401620000,401680000,27,LDA2"
+
+// ---- Recovery --------------------------------------------------------------
+
+// Drops the cached detection result so the next satModuleDetect() probes the
+// hardware again. Used after a power cycle, when the module may have changed
+// its mind about being alive.
+void satModuleForget();
+
+// Cuts the module's supply rail, brings it back and re-probes. The only reset
+// available: the ESP32 can switch the relay and nothing finer. Returns true if
+// the module answers afterwards. See SAT_MODULE_MAX_ATTEMPTS in conf.h for why
+// this exists.
+bool satModulePowerCycle();
