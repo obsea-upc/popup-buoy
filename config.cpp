@@ -1,5 +1,6 @@
 #include "config.h"
 #include "logging.h"
+#include "adc.h"       // for the per-board battery-reading trim
 #include <SD.h>
 
 // SD config file (owned by this module; nothing else touches it).
@@ -151,6 +152,19 @@ void getInfoFromConfFile() {
       if (VariableNameStr == "BAT_CRIT_LEVEL") {  // NUEVA VARIABLE FLOAT
         Bat_critlevel = static_cast<float>(DataFromVariable)/1000;  // Conversión explícita
         writeLogFile("Battery critical lebel: " + String(Bat_critlevel));
+      }
+
+      // Battery-reading trim, per board: Vin = Vin_medido * a + b. Both are
+      // optional; a card without them leaves the reading untouched. Written as
+      // integers because this parser only reads integers - a is x1000, b in mV.
+      if (VariableNameStr == "ADC_CAL_A_x1000") {
+        adcCalA = static_cast<float>(DataFromVariable)/1000;
+        writeLogFile("ADC calibration a: " + String(adcCalA, 4));
+      }
+
+      if (VariableNameStr == "ADC_CAL_B_mV") {
+        adcCalB = static_cast<float>(DataFromVariable)/1000;
+        writeLogFile("ADC calibration b: " + String(adcCalB, 4) + " V");
       }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition

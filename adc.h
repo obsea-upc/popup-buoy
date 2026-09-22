@@ -24,3 +24,11 @@ bool batteryPresent();
 // Battery voltage and last ADC hex reading (defined in adc.cpp).
 extern float Vin_ADC;
 extern char ADCreadHex[3];
+
+// Per-board trim of the battery reading, y = a*x + b, in volts. Filled from
+// conf.txt (ADC_CAL_A_x1000, ADC_CAL_B_mV); 1.0 / 0.0 leave the reading alone.
+// The chip's own factory calibration is already applied inside adcAcquireData(),
+// so this only takes out what is left: the divider's resistor tolerance. Measure
+// the pack with a multimeter, compare with the "Vin (up)" line, and trim.
+extern float adcCalA;
+extern float adcCalB;
