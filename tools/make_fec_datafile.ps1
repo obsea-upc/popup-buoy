@@ -25,7 +25,18 @@ param(
   [Parameter(Mandatory=$true)][string]$Out,
   [int]$Reps = 50,
   [int]$Chunk = 38,          # hex characters of payload per frame (19 bytes)
-  [int]$Segments = 22
+  [int]$Segments = 22,
+  # Pack the segments into one continuous stream instead of starting each one on
+  # a fresh frame. The last frame of every segment is padded today - 438 hex of
+  # 'f' across the 22 of them, 7.3 % of everything transmitted - and packing is
+  # what recovers it: 146 frames per image instead of 157, which is what the two
+  # parity bytes cost. The frame header stops being (segment, line) and becomes a
+  # plain sequence number, so the ground needs the manifest written next to the
+  # file to know where each segment begins.
+  #
+  # The price: 21 frames straddle a segment boundary, and losing one of those
+  # damages two segments rather than one.
+  [switch]$Packed
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,16 +96,41 @@ Write-Output ("imagen: {0} segmentos, {1} caracteres hex ({2} bytes)" -f $segHex
 
 # --- re-chunk with room for the parity, and encode ----------------------------
 $outFrames = New-Object Collections.Generic.List[string]
-foreach ($s in ($segHex.Keys | Sort-Object)) {
-  $data = $segHex[$s]
-  $n = 0
-  for ($i = 0; $i -lt $data.Length; $i += $Chunk) {
-    $n++
-    $piece = $data.Substring($i, [Math]::Min($Chunk, $data.Length - $i))
-    if ($piece.Length -lt $Chunk) { $piece = $piece.PadRight($Chunk, 'f') }
-    if ($n -gt 255) { throw "el segmento $s necesita mas de 255 tramas" }
-    $body = ('{0:x2}{1:x2}' -f $s, $n) + $piece
+$manifest = New-Object Collections.Generic.List[string]
+
+if ($Packed) {
+  # One continuous stream, chopped wherever the frame boundary falls. The frame
+  # header is the sequence number, and where each segment starts goes into the
+  # manifest instead of into every frame.
+  $stream = New-Object Text.StringBuilder
+  foreach ($s in ($segHex.Keys | Sort-Object)) {
+    $manifest.Add(("{0};{1};{2}" -f $s, $stream.Length, $segHex[$s].Length))
+    [void]$stream.Append($segHex[$s])
+  }
+  $streamHex = $stream.ToString()
+  $padded = 0
+  for ($i = 0; $i -lt $streamHex.Length; $i += $Chunk) {
+    $seq = $outFrames.Count + 1
+    if ($seq -gt 0xFAF9) { throw "hacen falta mas tramas de las que caben en el numero de secuencia" }
+    $piece = $streamHex.Substring($i, [Math]::Min($Chunk, $streamHex.Length - $i))
+    if ($piece.Length -lt $Chunk) { $padded = $Chunk - $piece.Length; $piece = $piece.PadRight($Chunk, 'f') }
+    $body = ('{0:x4}' -f $seq) + $piece
     $outFrames.Add($body + (Invoke-BchEncode $body))
+  }
+  Write-Output ("empaquetado: {0} hex de relleno en total (antes {1})" -f `
+    $padded, ($Segments * $Chunk - ($total % ($Segments * $Chunk))))
+} else {
+  foreach ($s in ($segHex.Keys | Sort-Object)) {
+    $data = $segHex[$s]
+    $n = 0
+    for ($i = 0; $i -lt $data.Length; $i += $Chunk) {
+      $n++
+      $piece = $data.Substring($i, [Math]::Min($Chunk, $data.Length - $i))
+      if ($piece.Length -lt $Chunk) { $piece = $piece.PadRight($Chunk, 'f') }
+      if ($n -gt 255) { throw "el segmento $s necesita mas de 255 tramas" }
+      $body = ('{0:x2}{1:x2}' -f $s, $n) + $piece
+      $outFrames.Add($body + (Invoke-BchEncode $body))
+    }
   }
 }
 Write-Output ("tramas por repeticion: {0} (antes {1}, {2:P1} mas)" -f `
@@ -103,20 +139,39 @@ Write-Output ("tramas por repeticion: {0} (antes {1}, {2:P1} mas)" -f `
 # --- verify the round trip before anything is written -------------------------
 # Decode every frame we just built and rebuild the segments from the result. If
 # this does not reproduce the source byte for byte, the file does not get made.
-$check = @{}
-foreach ($f in $outFrames) {
-  $r = Invoke-BchDecode $f
-  if (-not $r.ok -or $r.errors -ne 0) { throw "una trama recien creada no decodifica limpia: $f" }
-  $seg  = [Convert]::ToInt32($r.hex.Substring(0, 2), 16)
-  $line = [Convert]::ToInt32($r.hex.Substring(2, 2), 16)
-  if (-not $check.ContainsKey($seg)) { $check[$seg] = New-Object 'Collections.Generic.SortedList[int,string]' }
-  $check[$seg].Add($line, $r.hex.Substring(4))
-}
-foreach ($s in ($segHex.Keys | Sort-Object)) {
-  $rebuilt = -join $check[$s].Values
-  $end = $rebuilt.IndexOf('ffd9')
-  if ($end -ge 0) { $rebuilt = $rebuilt.Substring(0, $end + 4) }
-  if ($rebuilt -ne $segHex[$s]) { throw "el segmento $s no se reconstruye igual que en el origen" }
+if ($Packed) {
+  $rebuiltStream = New-Object Text.StringBuilder
+  $expectSeq = 0
+  foreach ($f in $outFrames) {
+    $r = Invoke-BchDecode $f
+    if (-not $r.ok -or $r.errors -ne 0) { throw "una trama recien creada no decodifica limpia: $f" }
+    $expectSeq++
+    $seq = [Convert]::ToInt32($r.hex.Substring(0, 4), 16)
+    if ($seq -ne $expectSeq) { throw "numero de secuencia fuera de orden: $seq en vez de $expectSeq" }
+    [void]$rebuiltStream.Append($r.hex.Substring(4))
+  }
+  $rebuilt = $rebuiltStream.ToString()
+  foreach ($m in $manifest) {
+    $p = $m -split ';'
+    $s = [int]$p[0]; $off = [int]$p[1]; $len = [int]$p[2]
+    if ($rebuilt.Substring($off, $len) -ne $segHex[$s]) { throw "el segmento $s no se reconstruye igual que en el origen" }
+  }
+} else {
+  $check = @{}
+  foreach ($f in $outFrames) {
+    $r = Invoke-BchDecode $f
+    if (-not $r.ok -or $r.errors -ne 0) { throw "una trama recien creada no decodifica limpia: $f" }
+    $seg  = [Convert]::ToInt32($r.hex.Substring(0, 2), 16)
+    $line = [Convert]::ToInt32($r.hex.Substring(2, 2), 16)
+    if (-not $check.ContainsKey($seg)) { $check[$seg] = New-Object 'Collections.Generic.SortedList[int,string]' }
+    $check[$seg].Add($line, $r.hex.Substring(4))
+  }
+  foreach ($s in ($segHex.Keys | Sort-Object)) {
+    $rebuilt = -join $check[$s].Values
+    $end = $rebuilt.IndexOf('ffd9')
+    if ($end -ge 0) { $rebuilt = $rebuilt.Substring(0, $end + 4) }
+    if ($rebuilt -ne $segHex[$s]) { throw "el segmento $s no se reconstruye igual que en el origen" }
+  }
 }
 Write-Output "verificacion: los 22 segmentos se reconstruyen identicos al origen"
 
@@ -132,3 +187,17 @@ for ($r = 1; $r -le $Reps; $r++) {
 Write-Output ""
 Write-Output ("escrito {0}" -f $Out)
 Write-Output ("{0} lineas = {1} centinelas + {2} repeticiones x {3} tramas" -f $row, $prefix.Count, $Reps, $outFrames.Count)
+
+if ($Packed) {
+  # The manifest is what the ground needs to slice the stream back into segments,
+  # exactly as header.txt is what it needs to decode them. It stays here, next to
+  # the data file, because the two only make sense together.
+  $manOut = [IO.Path]::ChangeExtension($Out, '.manifest.txt')
+  $mb = New-Object Text.StringBuilder
+  [void]$mb.Append("# manifiesto del fichero empaquetado " + [IO.Path]::GetFileName($Out) + "`n")
+  [void]$mb.Append("# segmento;offset_hex;longitud_hex   (offsets dentro del flujo continuo)`n")
+  [void]$mb.Append("# chunk=$Chunk tramas=$($outFrames.Count) segmentos=$Segments`n")
+  foreach ($m in $manifest) { [void]$mb.Append($m + "`n") }
+  [IO.File]::WriteAllText($manOut, $mb.ToString(), (New-Object Text.UTF8Encoding($false)))
+  Write-Output ("manifiesto {0}" -f $manOut)
+}

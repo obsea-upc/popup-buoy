@@ -34,10 +34,18 @@ param(
   # 4 hex of header, 38 of payload, 4 of parity. Every copy is passed through the
   # decoder first, so a frame with one or two flipped bits is repaired instead of
   # being thrown away or, worse, silently used as it arrived.
-  [switch]$Fec
+  [switch]$Fec,
+  # The manifest written beside a packed data file (make_fec_datafile.ps1 -Packed).
+  # In a packed file the segments are one continuous stream rather than each
+  # starting on a fresh frame, so the frame header is a sequence number and the
+  # manifest is the only thing that says where each segment begins. Packed files
+  # always carry the parity, so this turns -Fec on by itself.
+  [string]$Manifest
 )
 
 Add-Type -AssemblyName System.Drawing
+$packed = [bool]$Manifest
+if ($packed) { $Fec = $true }
 if ($Fec) { . (Join-Path $PSScriptRoot 'bch.ps1') }
 
 # Payload hex per frame, which is what a missing line has to be padded out to.
@@ -64,12 +72,19 @@ if ($Verify) {
   }
 }
 
-# segment -> line -> list of copies
+# segment -> line -> list of copies, or, packed, sequence number -> list of copies
 $seg = @{}
+$seq = @{}
 $fecStats = @{ clean = 0; fixed1 = 0; fixed2 = 0; beyond = 0 }
 foreach ($l in $lines) {
   $hex = ($l -split ':')[-1].Trim().ToLower()
   if ($hex.Length -lt 46) { continue }
+
+  # Sentinels first, on the raw frame. They carry no parity, so letting them
+  # reach the decoder would both pollute the correction counts and, worse, let a
+  # sentinel be "corrected" into something with a valid sequence number and
+  # written into the middle of the image stream.
+  if ($hex -match '^fa(fa|fb|fc)') { continue }
 
   if ($Fec) {
     # Repair what the parity can repair, and keep the rest as it arrived: a JPEG
@@ -84,12 +99,76 @@ foreach ($l in $lines) {
     $hex = $r.hex
   }
 
+  if ($packed) {
+    # One key space: the sequence number. Which segment a frame belongs to is not
+    # in the frame at all, it comes from the manifest further down.
+    $q = [Convert]::ToInt32($hex.Substring(0,4),16)
+    if ($q -lt 1 -or $q -gt 0xFAF9) { continue }         # sentinels (0xfa..) and noise
+    if (-not $seq.ContainsKey($q)) { $seq[$q] = New-Object Collections.Generic.List[string] }
+    $seq[$q].Add($hex.Substring(4))
+    continue
+  }
+
   $s = [Convert]::ToInt32($hex.Substring(0,2),16)
   $n = [Convert]::ToInt32($hex.Substring(2,2),16)
   if ($s -lt 1 -or $s -gt $Segments) { continue }        # sentinels (0xfa..) and noise
   if (-not $seg.ContainsKey($s)) { $seg[$s] = @{} }
   if (-not $seg[$s].ContainsKey($n)) { $seg[$s][$n] = New-Object Collections.Generic.List[string] }
   $seg[$s][$n].Add($hex.Substring(4))
+}
+
+# --- packed mode: rebuild the stream, then cut it up with the manifest --------
+if ($packed) {
+  $layout = New-Object Collections.Generic.List[object]
+  $nFrames = 0
+  foreach ($l in ((Read-TextShared $Manifest) -split "`r?`n")) {
+    $t = $l.Trim()
+    if ($t -match 'tramas=(\d+)') { $nFrames = [int]$Matches[1] }
+    if ($t.StartsWith('#') -or -not $t) { continue }
+    $p = $t -split ';'
+    $layout.Add([pscustomobject]@{ seg = [int]$p[0]; off = [int]$p[1]; len = [int]$p[2] })
+  }
+  if ($layout.Count -eq 0) { throw "el manifiesto $Manifest no trae ningun segmento" }
+  if ($nFrames -eq 0) { $nFrames = [int][math]::Ceiling((($layout[-1].off + $layout[-1].len) / $chunkHex)) }
+
+  # Two streams, the same two choices the unpacked path makes per line: one that
+  # only uses copies known intact, one that uses the best copy available. A frame
+  # that never arrived becomes zeros either way - in a packed stream a hole cannot
+  # be dropped, or everything after it would shift.
+  function Build-Stream($onlyVerified) {
+    $sb = New-Object Text.StringBuilder
+    for ($q = 1; $q -le $nFrames; $q++) {
+      $piece = $null
+      if ($seq.ContainsKey($q)) {
+        $copies = $seq[$q]
+        if ($good) {
+          $head = '{0:x4}' -f $q
+          $piece = $copies | Where-Object { $good.Contains($head + $_) } | Select-Object -First 1
+        }
+        if (-not $piece -and -not $onlyVerified) {
+          $piece = ($copies | Group-Object | Sort-Object Count -Descending | Select-Object -First 1).Name
+        }
+      }
+      if (-not $piece) { $piece = '0' * $chunkHex }
+      [void]$sb.Append($piece)
+    }
+    $sb.ToString()
+  }
+  $streamVerified = if ($good) { Build-Stream $true } else { $null }
+  $streamBest = Build-Stream $false
+
+  $segOf = @{}
+  foreach ($e in $layout) { $segOf[$e.seg] = $e }
+  $haveFrames = @{}
+  foreach ($e in $layout) {
+    # How many of this segment's frames arrived at all, for the per-segment line
+    # the loop below prints. A frame that straddles a boundary counts for both.
+    $first = [int][math]::Floor($e.off / $chunkHex) + 1
+    $last  = [int][math]::Ceiling(($e.off + $e.len) / $chunkHex)
+    $n = 0
+    for ($q = $first; $q -le $last; $q++) { if ($seq.ContainsKey($q)) { $n++ } }
+    $haveFrames[$e.seg] = $n
+  }
 }
 
 $segW = [int][math]::Floor($Width / $Segments)
@@ -109,6 +188,22 @@ for ($i = 1; $i -le $Segments; $i++) {
   # all. Neither is always better - a JPEG sometimes survives a wrong chunk and
   # sometimes not - so both are tried below and the one that decodes wins.
   function Build-Segment($segNum, $onlyVerified) {
+    if ($packed) {
+      # The stream is already assembled; a segment is a slice of it, and the first
+      # 9 hex of that slice are the Baseline DCT bytes the template is missing.
+      if (-not $segOf.ContainsKey($segNum)) { return $null }
+      $stream = if ($onlyVerified) { $streamVerified } else { $streamBest }
+      if (-not $stream) { return $null }
+      $e = $segOf[$segNum]
+      if ($e.off + $e.len -gt $stream.Length) { return $null }
+      $slice = $stream.Substring($e.off, $e.len)
+      if ($slice.Length -lt 9) { return $null }
+      $d = $tpl.Replace("ZZZZZZZZZ", $slice.Substring(0,9)) + $slice.Substring(9)
+      $cut = $d.IndexOf('ffd9')
+      if ($cut -ge 0) { $d = $d.Substring(0, $cut + 4) }
+      return $d
+    }
+
     if (-not $seg.ContainsKey($segNum) -or $seg[$segNum].Count -eq 0) { return $null }
     $pick = @{}
     foreach ($n in ($seg[$segNum].Keys | Sort-Object)) {
@@ -146,7 +241,7 @@ for ($i = 1; $i -le $Segments; $i++) {
   if ($img) {
     $g.DrawImage($img, (New-Object Drawing.Rectangle($left, 0, $w, $Height)))
     $img.Dispose()
-    $have = $seg[$i].Count
+    $have = if ($packed) { $haveFrames[$i] } else { $seg[$i].Count }
     if (-not $Quiet) { Write-Output ("  seg {0,2}: {1,2} lineas, decodifica" -f $i, $have) }
     $okSeg++
   } else {
