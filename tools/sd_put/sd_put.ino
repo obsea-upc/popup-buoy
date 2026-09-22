@@ -148,7 +148,9 @@ void loop() {
   if (sp < 0) { Serial.println("FAIL sintaxis"); return; }
   const String path = cmd.substring(4, sp);
   const long n = cmd.substring(sp + 1).toInt();
-  if (path.length() == 0 || n <= 0) { Serial.println("FAIL argumentos"); return; }
+  // Zero lines is allowed: it truncates the file, which is how a template ships an
+  // empty LogFile. The old one is still kept as .bak.
+  if (path.length() == 0 || n < 0) { Serial.println("FAIL argumentos"); return; }
 
   handlePut(path, n);
 }

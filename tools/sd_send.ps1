@@ -18,8 +18,17 @@ if (-not (Test-Path $LocalFile)) { throw "no existe: $LocalFile" }
 # .NET keeps its own working directory and does not follow Set-Location, so a
 # relative path has to be resolved before it reaches ReadAllLines.
 $LocalFile = (Resolve-Path $LocalFile).ProviderPath
-$lines = @([IO.File]::ReadAllLines($LocalFile) | Where-Object { $_.Length -gt 0 })
-if ($lines.Count -eq 0) { throw "el fichero no tiene lineas utiles: $LocalFile" }
+# Opened with ReadWrite sharing so a file still open in Excel can be read. A read
+# failure must stop the script: a .NET exception is not terminating in PowerShell,
+# and with empty files allowed it used to carry on and blank the file on the card.
+try {
+  $fs = [IO.File]::Open($LocalFile, 'Open', 'Read', 'ReadWrite')
+  $rd = New-Object IO.StreamReader($fs)
+  $text = $rd.ReadToEnd()
+  $rd.Close()
+} catch { throw "no se puede leer $LocalFile : $($_.Exception.Message)" }
+$lines = @($text -split "`r?`n" | Where-Object { $_.Length -gt 0 })
+if ($lines.Count -eq 0) { Write-Output "fichero sin lineas: se dejara vacio en la tarjeta" }
 Write-Output ("fichero local: {0} lineas, {1} bytes" -f $lines.Count, (Get-Item $LocalFile).Length)
 
 $sp = New-Object System.IO.Ports.SerialPort $Port, $Baud, "None", 8, "One"
