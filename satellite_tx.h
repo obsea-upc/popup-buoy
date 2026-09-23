@@ -19,7 +19,7 @@ bool sendGPSviaKIM(int sendRepeat, int waitRepeat);
 void SendGPSMessage(int timeSending);
 
 // Transmit one seabed-data line (kineisdataMessage).
-void SendDataMessage();
+bool SendDataMessage();   // true when the module accepted it
 
 // --- Seabed-data file transmission + progress tracking (SD data/progress files) ---
 void readSuccessFile();

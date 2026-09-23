@@ -116,7 +116,14 @@ inline const char* stateName(int s) {
 // real job, being ready when the pass opens, and stops paying for awake minutes
 // that do nothing. 60 s leaves room for the GPS fix (about 24 s measured) and the
 // module dialogue.
-#define TIME_LESS_BEFORE_AWAKENING 60  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
+//
+// 45 s from 23 Sep 2026, and it now marks the session start exactly rather than
+// being a margin: after the fix the buoy light-sleeps whatever is left of the 45 s
+// (sppHoldUntilSessionStart), so the first message goes out as the session opens
+// at MinElev. Before, it went out as soon as the fix was in - about 55 s early on
+// the V2, whose warm fix takes seconds. 45 s still covers a V1 cold fix (30-50 s);
+// a fix slower than that simply starts late, as before.
+#define TIME_LESS_BEFORE_AWAKENING 45  //time (in sec) took from the general time to wait the awakening to be sure not to miss the satellite
 // How many times the pass prediction may fail before the buoy stops retrying and
 // deep-sleeps instead. The retry was unbounded and cost both buoys more than five
 // hours of the 9 Aug test, awake, recomputing a prediction that could not succeed.
@@ -236,6 +243,9 @@ inline const char* stateName(int s) {
 // Buoy 1 logged four in a row minutes before it died; three is inside that and
 // well above the isolated failures a healthy module produces.
 #define SAT_MSG_ERR_STREAK 3
+// Attempts at one data row before it is skipped. Failed ones no longer advance
+// the progress file, so a row the module refuses for good must not stall it.
+#define SAT_ROW_MAX_ATTEMPTS 3
 // Below this the supply cannot fire the Argos power amplifier. Arribada document
 // battery power as required for uplink - USB alone is enough to talk to the
 // module but not to transmit - and it shows exactly that way: every command is
@@ -275,6 +285,8 @@ inline const char* stateName(int s) {
 #define GPSBaud 9600
 #define UBX_BOOT_TIMEOUT_MS 1500  // V2: wait for the NEO-M8N's first NMEA before configuring it
 #define UBX_ACK_TIMEOUT_MS 1000   // V2: UBX answers come back in tens of ms
+#define RTC_GPS_MAX_DRIFT_S 30    // correct the RTC from the fix only beyond this (Matias, 22 Sep)
+#define RTC_GPS_MAX_YEARS 10      // a GPS date further than this past the build is rejected
 
 //------ Definition for KINEIS module
 // Spacing between two satellite transmissions, measured transmission to

@@ -101,7 +101,28 @@ static void sppCollectPasses(struct PredictionPassConfiguration_t *cfg,
   }
 }
 
+// Set when the next wake is the overlap restart, into a session that is already
+// running. In RTC slow memory: it survives the deep sleep, costs no flash write,
+// and a power loss clears it to false, which only means transmitting at once.
+RTC_DATA_ATTR static bool wakeIntoRunningSession = false;
+
+void sppHoldUntilSessionStart() {
+  if (wakeIntoRunningSession) {
+    writeLogFile("Woke into a session already running: no hold.");
+    return;
+  }
+  // A scheduled wake happens TIME_LESS_BEFORE_AWAKENING before the session opens,
+  // and millis() counts from that wake, so what is left of the lead is simply
+  // the lead minus millis(). A fix that took longer leaves nothing to wait for.
+  const int32_t holdS = TIME_LESS_BEFORE_AWAKENING - (int32_t)(millis() / 1000);
+  if (holdS < 1) return;
+  writeLogFile("Ready " + String(millis() / 1000) + " s after the wake. Light sleep "
+               + String(holdS) + " s until the session opens.");
+  goToSleep(holdS);
+}
+
 void runSatellitePassPrediction(bool lowPower) {
+  wakeIntoRunningSession = false;   // only the overlap branch below sets it
   if (gpsFix) {
 
     SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
@@ -139,6 +160,7 @@ void runSatellitePassPrediction(bool lowPower) {
         changeStateTo(lowPower ? 5 : 4);
         delay(10);
         secondsBeforeNextStatellite = lowPower ? 0 : 5;      //go directly to the state to continue transmitting, no sleep
+        wakeIntoRunningSession = true;   // the next wake must not hold: the session is on (or under 45 s away)
         SPP_progress=false;
 
       } else if (secondsBeforeNextStatellite <= 0) {  // If we are not in the case of overlapping coverage but only with a coverage which is over

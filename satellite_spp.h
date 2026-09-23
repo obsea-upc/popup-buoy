@@ -9,6 +9,12 @@
 // lowPower=true is the critical-battery variant (state 5).
 void runSatellitePassPrediction(bool lowPower);
 
+// Call after the fix on a wake with coverage: light-sleeps whatever is left of
+// TIME_LESS_BEFORE_AWAKENING, so the first message goes out as the session opens
+// rather than as soon as the fix is in. Does nothing on a wake into a session
+// that is already running (the overlap restart) or when the fix used it all.
+void sppHoldUntilSessionStart();
+
 // Seconds until the next transmit session worth waking for, and stores that
 // session's length as the coverage duration in EEPROM. A session is one or more
 // passes close enough together to be served by a single wake; sessions that

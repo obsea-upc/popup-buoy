@@ -798,6 +798,11 @@ void loop() {
       // the current clock, so it also double-checks the prediction made a cycle ago.
         sppBeginSession(gpsLat, gpsLong, SPP_ATTRIBUTION_MIN_ELEV, CoverageState == 1 ? Decimal_CoverageDuration : 0);
 
+      // --- WAIT FOR THE SESSION TO OPEN --- the wake is TIME_LESS_BEFORE_AWAKENING
+      // early so the fix fits in front of the pass; whatever the fix left over is
+      // slept here instead of spent transmitting below MinElev.
+        if (CoverageState == 1) sppHoldUntilSessionStart();
+
       // --- SENDING MESSAGES PART ---
         if (!moduleReady) {
           writeLogFile("No satellite module this wake. Nothing transmitted; the fix and the prediction still stand.");
@@ -970,6 +975,9 @@ void loop() {
 
       // --- WHICH SATELLITE IS ACTUALLY OVERHEAD --- same as state 4, at critMinElev
         sppBeginSession(gpsLat, gpsLong, SPP_ATTRIBUTION_MIN_ELEV, CoverageState == 1 ? Decimal_CoverageDuration : 0);
+
+      // --- WAIT FOR THE SESSION TO OPEN --- same as state 4
+        if (CoverageState == 1) sppHoldUntilSessionStart();
 
       // --- SENDING MESSAGES PART --- this can be moved down
 

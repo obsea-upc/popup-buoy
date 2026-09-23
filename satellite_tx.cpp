@@ -332,7 +332,7 @@ void SendGPSMessage(int timeSending) {
   sendGPSviaKIM(sendRepeat, cycleMs);
 }
 
-void SendDataMessage() {
+bool SendDataMessage() {
   beginCycleIfNeeded();
   writeLogFile("Sending : " + String(kineisdataMessage));
   const bool ok = sendWithRecovery(kineisdataMessage);
@@ -345,6 +345,7 @@ void SendDataMessage() {
   logTransmission("DATA", ok);
   // Seabed data only ever goes out in DM, so it keeps the 30 s DM spacing.
   sleepRestOfCycle(INTERVAL_MS);
+  return ok;
 }
 
 void readSuccessFile() {
@@ -459,7 +460,15 @@ void SendFileKim(int time_to_send) {
         } else {
           new_line = GetLineDataFile(row);  // We get the line corresponding to the row in the progressFile
         }
-        for (int N = nbrSendingProgress; N < MaxNbrMsgSendingDataFile; N++) {
+        // A repetition only counts once the module accepted it. It used to be
+        // counted whatever happened, so a MSG_ERR still moved the progress file
+        // on and that row was never sent at all - on a real drift, silent data
+        // loss (seen 9 Aug: "ARRIBADA MSG_ERR" then "We just add an other line").
+        // A failed one is retried in the next slot, up to SAT_ROW_MAX_ATTEMPTS,
+        // and then skipped with a log line, so a row the module will never take
+        // cannot stall the whole file.
+        int rowFailures = 0;
+        for (int N = nbrSendingProgress; N < MaxNbrMsgSendingDataFile; ) {
           if (NbrMsgToSend <= 0) {  // Condition about the timer to stop sending messages
             nbrSendingProgress = N;
             if (N != 0) {  // If N = 0, it means that we are coming from the last sending of the previous row so the progress file has already been updated
@@ -467,22 +476,30 @@ void SendFileKim(int time_to_send) {
               SaveInProgressFile(row, N);  // We save in the progressfile where we are when the time is over
             }
             break;
-          } else if (N == MaxNbrMsgSendingDataFile - 1) {  //When we arrive at the end of the sending of a row, put variable to 0 for the next row.
+          }
+          SerialPrintDebugln(" The line to send is : " + String(new_line));
+          strncpy(kineisdataMessage, new_line, sizeof(kineisdataMessage) - 1);
+          kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';  // strncpy does not terminate on a full copy, and the send path now measures with strlen()
+          const bool sent = SendDataMessage();
+          NbrMsgToSend -= 1;  // One slot used, sent or not
+
+          if (!sent) {
+            rowFailures++;
+            if (rowFailures < SAT_ROW_MAX_ATTEMPTS) {
+              writeLogFile("Row " + String(row) + " not sent, trying it again");
+              continue;   // same N: the repetition is still owed
+            }
+            writeLogFile("Row " + String(row) + " failed " + String(rowFailures)
+                         + " times in a row, skipping it");
+          }
+          rowFailures = 0;
+
+          if (N == MaxNbrMsgSendingDataFile - 1) {  //When we arrive at the end of the sending of a row, put variable to 0 for the next row.
             nbrSendingProgress = 0;
-            SerialPrintDebugln(" The line to send is : " + String(new_line));
-            strncpy(kineisdataMessage, new_line, sizeof(kineisdataMessage) - 1);
-            kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';  // strncpy does not terminate on a full copy, and the send path now measures with strlen()
-            SendDataMessage();
-            NbrMsgToSend -= 1;  // One message is sent so we can reduce the counter
             SerialPrintDebugln(" Saving data, end of repetition ");
             SaveInProgressFile(row, N + 1);  // We save in the progressfile where we are when the line is going to change
-          } else {
-            SerialPrintDebugln(" The line to send is : " + String(new_line));
-            strncpy(kineisdataMessage, new_line, sizeof(kineisdataMessage) - 1);
-            kineisdataMessage[sizeof(kineisdataMessage) - 1] = '\0';  // strncpy does not terminate on a full copy, and the send path now measures with strlen()
-            SendDataMessage();
-            NbrMsgToSend -= 1;  // One message is sent so we can reduce the counter
           }
+          N++;
         }
         SerialPrintDebugln("End of repetition");
         row++;

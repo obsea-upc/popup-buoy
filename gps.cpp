@@ -285,6 +285,43 @@ bool gpsAcquireSatellites() {
   return false;  // Retorna false si no se detectan satélites en 30 segundos
 }
 
+// Corrects the DS3231 from the fix just taken, only when they disagree by more
+// than RTC_GPS_MAX_DRIFT_S - so the jitter of a fix never touches a healthy
+// clock, and a clock gone wrong is caught on the next wake. Buoy 3 came to the
+// bench 2 h 05 min slow on 17 Sep, and the pass planner trusts the RTC blindly.
+// Everything is UTC: the GPS reports UTC and the RTC is kept in UTC.
+//
+// The GPS date itself is not trusted blindly either. The V1 receivers have
+// reported dates 256 weeks in the past (a GPS week rollover, buoy 2, 17 Sep) and
+// nonsense like 2072 indoors. A date before this firmware was built, or more
+// than RTC_GPS_MAX_YEARS after it, is rejected and logged, and the RTC is left
+// alone.
+static void syncRtcFromGps() {
+  if (!gps.date.isValid() || !gps.time.isValid()) return;
+  const DateTime gpsNow(gps.date.year(), gps.date.month(), gps.date.day(),
+                        gps.time.hour(), gps.time.minute(), gps.time.second());
+  // __DATE__/__TIME__ are the build machine's local time; a day of slack covers
+  // any time zone.
+  const uint32_t built = DateTime(F(__DATE__), F(__TIME__)).unixtime() - 86400UL;
+  const uint32_t g = gpsNow.unixtime();
+  if (g < built || g > built + RTC_GPS_MAX_YEARS * 365UL * 86400UL) {
+    writeLogFile("GPS date " + gpsNow.timestamp() + " rejected as implausible; RTC left alone");
+    return;
+  }
+
+  // The date and time were decoded a moment ago; add how long ago so the
+  // comparison is against the same instant.
+  const uint32_t ageS = gps.time.age() / 1000;
+  const DateTime gpsCorrected(g + ageS);
+  const DateTime rtcNow = rtcExt.now();
+  const int32_t drift = (int32_t)(rtcNow.unixtime() - gpsCorrected.unixtime());
+  if (abs(drift) <= RTC_GPS_MAX_DRIFT_S) return;
+
+  rtcExt.adjust(gpsCorrected);
+  writeLogFile("RTC corrected from GPS: was " + rtcNow.timestamp() + ", now "
+               + gpsCorrected.timestamp() + " UTC (" + String(drift) + " s off)");
+}
+
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
 
   // V2: the GPS is powered for the fix only, in every state, FRM included - it
@@ -399,6 +436,8 @@ void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t 
   }
 
   gpsPowerOff();
+
+  if (gpsFix) syncRtcFromGps();
 
   if (gpsFix) {
     SerialPrintDebugln("GPS acquiring data------>DONE");
