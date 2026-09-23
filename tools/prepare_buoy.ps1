@@ -120,14 +120,22 @@ function Flash($sketchRelative, $what) {
 # Opens the port, sends the lines and returns everything the board said. DTR is
 # left alone on purpose: on the CH9102 the EN line follows RTS only, and raising
 # DTR resets the board in the middle of the conversation.
-function Talk([string[]]$send, [int]$listenMs = 4000) {
+function Talk([string[]]$send, [int]$listenMs = 4000, [switch]$Reset) {
   $sp = New-Object IO.Ports.SerialPort($Port, 115200, 'None', 8, 'One')
   $sp.DtrEnable = $false; $sp.RtsEnable = $false
   $sp.ReadTimeout = 400
   $log = New-Object Collections.Generic.List[string]
   try {
     $sp.Open()
-    Start-Sleep -Milliseconds 1800    # deja arrancar al sketch
+    if ($Reset) {
+      # Pulse EN (it follows RTS on the CH9102) so the whole boot is heard. The
+      # port is otherwise opened seconds after the upload's own reset, by which
+      # time the configuration lines have already gone by unread - which is why
+      # the 22 Sep dry run reported "no he visto MinElev".
+      $sp.RtsEnable = $true; Start-Sleep -Milliseconds 100; $sp.RtsEnable = $false
+    } else {
+      Start-Sleep -Milliseconds 1800    # deja arrancar al sketch
+    }
     foreach ($s in $send) { $sp.WriteLine($s); Start-Sleep -Milliseconds 300 }
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt $listenMs) {
@@ -206,13 +214,32 @@ if ($DryRun) {
   return
 }
 
-$boot = Talk @() 30000
+Say "reiniciando la boya y escuchando su arranque (40 s)"
+$boot = Talk @() 40000 -Reset
 $expected = $row       # lineas del dataFile que acabamos de subir
 $seenRows = $boot | Where-Object { $_ -match 'MaxRowDataFile is : (\d+)' } | Select-Object -Last 1
 $seenElev = $boot | Where-Object { $_ -match 'Minimum Elevation: ([\d\.]+)' } | Select-Object -Last 1
 $seenState = $boot | Where-Object { $_ -match 'CurrentState of POP_UP_BUOY: (\w+)' } | Select-Object -First 1
+$seenBoard = $boot | Where-Object { $_ -match '^Board V\d' } | Select-Object -First 1
+$seenSat   = $boot | Where-Object { $_ -match 'Satellite module detection ----> (\S.*)' } | Select-Object -Last 1
+$seenList  = $boot | Where-Object { $_ -match 'SAT module .*(confirmed by SD list|not listed|MISMATCH)' } | Select-Object -Last 1
+$seenCfg   = $boot | Where-Object { $_ -match 'Configuration_ERR|AFMT_ERR|SAT MODULE DEAD|NOT DETECTED' }
+$seenBatt  = $boot | Where-Object { $_ -match 'Vin \((up|MAX17048)\)' } | Select-Object -First 1
+$seenDumb  = $boot | Where-Object { $_ -match 'Brownout|Guru Meditation|Card Mount Failed' }
 
 $ok = $true
+if ($seenBoard) { Say ("placa: " + ($seenBoard -replace '^Board ', '')) }
+else { Say "AVISO: no he visto la deteccion de placa (firmware viejo?)"; $ok = $false }
+
+if ($seenSat -match '----> (\S.*)') {
+  if ($Matches[1] -match 'NONE') { Say "AVISO: no se detecta ningun modulo de satelite"; $ok = $false }
+  else { Say "modulo de satelite: $($Matches[1])" }
+} else { Say "AVISO: no he visto la deteccion del modulo de satelite"; $ok = $false }
+if ($seenList -match 'not listed|MISMATCH') { Say "AVISO: el modulo no cuadra con sat_transm.csv: $seenList"; $ok = $false }
+elseif ($seenList) { Say "sat_transm.csv: modulo confirmado" }
+foreach ($l in $seenCfg)  { Say "AVISO: $($l -replace '^Writing in LogFile.txt ---State \w+ - ', '')"; $ok = $false }
+foreach ($l in $seenDumb) { Say "AVISO: $l"; $ok = $false }
+if ($seenBatt) { Say ("bateria: " + ($seenBatt -replace '^.*Vin', 'Vin')) }
 if ($seenRows -match 'MaxRowDataFile is : (\d+)') {
   if ([int]$Matches[1] -eq $expected) { Say "dataFile: la boya lee $($Matches[1]) filas, las que subimos" }
   else { Say "AVISO: la boya lee $($Matches[1]) filas y subimos $expected"; $ok = $false }
@@ -221,7 +248,12 @@ if ($seenRows -match 'MaxRowDataFile is : (\d+)') {
 if ($seenElev -match 'Minimum Elevation: ([\d\.]+)') { Say "MinElev leido por la boya: $($Matches[1])" }
 else { Say "AVISO: no he visto MinElev en el arranque"; $ok = $false }
 
-if ($seenState) { Say ("estado al arrancar: " + ($seenState -replace '.*: ', '')) }
+if ($seenState -match ': (\w+)') {
+  $st = $Matches[1]
+  $want = @{ 0='CONFIG'; 1='DEPLOY'; 2='SEABED'; 4='DM'; 5='LOWPWR'; 6='FRM' }[$State]
+  if ($st -eq $want) { Say "estado al arrancar: $st" }
+  else { Say "AVISO: arranca en $st y se pidio $want"; $ok = $false }
+} else { Say "AVISO: no he visto el estado al arrancar"; $ok = $false }
 
 Write-Output ""
 if ($ok) {
