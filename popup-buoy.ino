@@ -14,6 +14,10 @@
 *   - RTC module
 *   - Step-UP converter (U3V16F5)
 *
+*   That is the V1 board. The same binary also runs the V2 (PopUp_board_cilinder_v9,
+*   NEO-M8N GPS on its own switch, MAX17048 battery gauge); board.h tells them apart
+*   at boot.
+*
 *    !!! IMPORTANT - Modify the secrets.h file for this project with your network connection and ThingSpeak channel details !!!
 
 *
@@ -24,6 +28,7 @@
 //IMPORTANT -- You must install the ESP32 board by Espressif Systems. Version 2.0.14! No newer!
 
 #include "conf.h"
+#include "board.h"
 #include "secrets.h"
 #include "logging.h"
 #include "eeprom_store.h"
@@ -63,7 +68,11 @@
 // and are never fitted at the same time. Both drivers are built on the same serial port; sat_module.*
 // probes at boot and routes every call to whichever one actually answered.
   HardwareSerial kimSerial(2);  // hard coded no library
-  KIM KIM(&kimSerial);          //with library
+  // false: the library must not drive an ON/OFF pin of its own. It hardcodes
+  // GPIO12, a strapping pin wired on neither board, and it would also take over
+  // opening the UART. The module's supply and ON/OFF are GPIO13 on both boards,
+  // switched by the sketch, and sat_module.cpp opens the port.
+  KIM KIM(&kimSerial, false);
   ARRIBADA Arribada(&kimSerial);
 
 //------ Kineis TX params (PWR2/PWR3/AFMT/delayKIM, kineisMessage/kineisdataMessage, new_line) now owned by satellite_tx.cpp
@@ -129,6 +138,11 @@ void setup() {
       SerialPrintDebugln("\n -------------WELCOME TO THE POP-UP-BUOY MASTER- " + String(SOFT_VERSION) + " " + String(COMPILE_DATE)  + "-------------\n\n");
     #endif
 
+  //------- BOARD DETECTION --------------------------------------------------------------------------------
+    // Before any pinMode: GPIO27 is a button on a V1 and the GPS switch on a V2.
+    boardDetect();
+    SerialPrintDebugln("Board " + String(boardName()) + " (" + String(boardDetectReason()) + ")");
+
   //------- EEPROM DEFINITION ------------------------------------------------------------------------------
     EEPROM.begin(EEPROM_SIZE);
     initializeEEPROM();
@@ -139,8 +153,8 @@ void setup() {
   //------- PB DEFINITION ----------------------------------------------------------------------------------
     pinMode(PB_1, INPUT_PULLUP);
     pinMode(PB_2, INPUT_PULLUP);
-    pinMode(PB_3, INPUT_PULLUP);
-    //pinMode(PB_3, INPUT); --> cambio
+    // GPIO39 has no internal pull-up; the V2 has R18 for it.
+    pinMode(PB_3, boardIsV2() ? INPUT : INPUT_PULLUP);
 
   //------- LED DEFINITION ---------------------------------------------------------------------------------
     pinMode(LED_R, OUTPUT);
@@ -152,11 +166,13 @@ void setup() {
     digitalWrite(LED_G, HIGH);  // initialise off
 
   //------- POWER RELAY DEFINITION -------------------------------------------------------------------------
-    pinMode(GPS_KIM, OUTPUT); //future just KIM
+    pinMode(GPS_KIM, OUTPUT); // V1: GPS + satellite module. V2: satellite module only
     pinMode(SD_card, OUTPUT);
-    //pinMode(GPS, OUTPUT)
-    //digitalWrite(GPS_KIM, LOW); --> fixar-los a low d'inici
-    //digitalWrite(GPS, LOW);
+    if (boardIsV2()) {
+      // The V2 GPS has its own switch and stays off until gpsAcquireData() needs it.
+      pinMode(GPS_EN_V2, OUTPUT);
+      digitalWrite(GPS_EN_V2, LOW);
+    }
     digitalWrite(SD_card, HIGH);
     if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       digitalWrite(GPS_KIM, HIGH);
@@ -324,6 +340,7 @@ void setup() {
         SerialPrintDebug("Error: not possible to allocate the memmory");
       }
     writeLogFile("-----------------//INITIALIZATION\\\\--------------------- ");
+    writeLogFile("Board " + String(boardName()) + " (" + String(boardDetectReason()) + ")");
     }
    //------- TIME UPDATE FROM UDP SERVER OR LANDER --------------------------------------------------------------------
       char date[10] = "hh:mm:ss";
@@ -375,7 +392,9 @@ void setup() {
   //------- GPS MODULE SETUP -------------------------------------------------------------------------------
     if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {
       SerialPrintDebugln("GPS Module Setup ---->");
-      gpsSerialBegin();
+      // On a V2 the GPS is still unpowered here, and an open port would idle its
+      // line high into it. gpsAcquireData() opens it together with the supply.
+      if (!boardIsV2()) gpsSerialBegin();
       SerialPrintDebug(F("Testing TinyGPSPlus library v. "));
       SerialPrintDebugln(TinyGPSPlus::libraryVersion());
       delay(10);

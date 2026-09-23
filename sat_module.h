@@ -57,7 +57,21 @@ bool satModuleSetFormat(const char *format);
 bool satModuleSendData(const char *hexPayload);
 
 // Releases the UART and tri-states its pins before the module is powered down.
+// The next call that talks to the module opens it again.
 void satModuleEnd();
+
+// satModuleEnd() plus the transmit line held low. Use it before the module's
+// supply or ON/OFF drops: an idle-high TX line feeds the module through its
+// receive pin, and on a V2 - where VKIM stays up and GPIO13 is only ON/OFF -
+// it keeps the KIM awake in Standby at 3.5 mA (measured 40/40 alive, 22 Sep).
+void satModuleReleaseLines();
+
+// The other half, and it has to happen the moment the module is switched back
+// on: reopen the port so the transmit line sits at its idle high while the
+// module boots. A KIM that boots with its RX held low reads it as garbage and
+// rejects the next command - AT+TX answered +ERROR=6, 2 out of 2 on the V2
+// bench, against +OK 2 out of 2 with the port reopened at power-on (23 Sep).
+void satModuleRestoreLines();
 
 // Name of the SD file mapping module IDs to module types, one "ID;TYPE" per
 // line (TYPE being KIM1 or ARR), e.g. "26423D4;KIM1" / "294847;ARR".

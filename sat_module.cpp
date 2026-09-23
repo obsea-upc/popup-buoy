@@ -5,7 +5,8 @@
 #include "ARRIBADA.h"
 #include "adc.h"        // for Vin_ADC, to tell a flat supply from a real failure
 #include "power_sleep.h" // for ConnectPeripherals, used by the power cycle below
-#include "gps.h"        // the GPS shares the rail, so a module power cycle reboots it too
+#include "gps.h"        // on a V1 the GPS shares the rail, so a module power cycle reboots it too
+#include "board.h"
 #include <SD.h>
 #include <string.h>
 #include <ctype.h>
@@ -20,6 +21,22 @@ const char *SD_satmodule_filename = "/sat_transm.csv";
 
 static SatModuleType detectedType = SAT_UNKNOWN;
 static char moduleID[32] = "";
+
+// Whether the port is open for the detected driver. The KIM library used to
+// open and close it itself, as a side effect of toggling an ON/OFF pin of its
+// own; that pin is gone, so the port is opened here, on first use after
+// detection and again after anything released it.
+static bool uartOpen = false;
+
+static void satUartOpen() {
+  if (uartOpen) return;
+  switch (detectedType) {
+    case SAT_KIM1:     kimSerial.begin(KIMBaud, SERIAL_8N1, RX_KIM, TX_KIM); break;
+    case SAT_ARRIBADA: Arribada.begin(KIMBaud, RX_KIM, TX_KIM);              break;
+    default: return;
+  }
+  uartOpen = true;
+}
 
 // Largest payload each module takes: 23 bytes for the Kineis standard format
 // on the KIM1, 24 bytes for LDA2/VLD on the Arribada.
@@ -221,16 +238,20 @@ SatModuleType satModuleDetect() {
   }
 
   kimSerial.end();
+  uartOpen = false;
 
   // Hand the port over to the driver that won, and read the ID through it.
   if (detectedType == SAT_KIM1) {
+    satUartOpen();
     if (KIM.check()) {
       extractID(KIM.get_ID());
     } else {
+      kimSerial.end();
+      uartOpen = false;
       detectedType = SAT_UNKNOWN;
     }
   } else if (detectedType == SAT_ARRIBADA) {
-    Arribada.begin(KIMBaud, RX_KIM, TX_KIM);
+    satUartOpen();
     if (Arribada.check()) {
       extractID(Arribada.get_ID());
 
@@ -248,6 +269,7 @@ SatModuleType satModuleDetect() {
       }
     } else {
       Arribada.end();
+      uartOpen = false;
       detectedType = SAT_UNKNOWN;
     }
   }
@@ -294,6 +316,7 @@ const char *satModuleName() {
 // --------------------------------------------------------------------------
 
 bool satModuleCheck() {
+  satUartOpen();
   switch (detectedType) {
     case SAT_KIM1:     return KIM.check();
     case SAT_ARRIBADA: return Arribada.check();
@@ -302,6 +325,7 @@ bool satModuleCheck() {
 }
 
 const char *satModuleGetID() {
+  satUartOpen();
   switch (detectedType) {
     case SAT_KIM1:     extractID(KIM.get_ID());      break;
     case SAT_ARRIBADA: extractID(Arribada.get_ID()); break;
@@ -311,6 +335,7 @@ const char *satModuleGetID() {
 }
 
 const char *satModuleGetSN() {
+  satUartOpen();
   switch (detectedType) {
     case SAT_KIM1:     return KIM.get_SN();
     case SAT_ARRIBADA: return Arribada.get_SN();
@@ -320,6 +345,7 @@ const char *satModuleGetSN() {
 
 bool satModuleSetPower(const char *powerMilliWatt) {
   if (powerMilliWatt == nullptr) return false;
+  satUartOpen();
 
   switch (detectedType) {
     case SAT_KIM1:
@@ -339,10 +365,16 @@ bool satModuleSetPower(const char *powerMilliWatt) {
 
 bool satModuleSetFormat(const char *format) {
   if (format == nullptr) return false;
+  satUartOpen();
 
   switch (detectedType) {
-    case SAT_KIM1:
-      return KIM.set_AFMT((char *)format, strlen(format)) == OK_KIM;
+    case SAT_KIM1: {
+      const RetStatusKIMTypeDef st = KIM.set_AFMT((char *)format, strlen(format));
+      if (st != OK_KIM) {
+        writeLogFile("KIM1 AFMT_ERR status " + String((int)st) + " last=[" + String(KIM.last_response()) + "]");
+      }
+      return st == OK_KIM;
+    }
 
     case SAT_ARRIBADA:
       // No AT+AFMT here; the equivalent knob is the MAC profile, and that is
@@ -364,6 +396,7 @@ bool satModuleSendData(const char *hexPayload) {
   if (hexPayload == nullptr || hexPayload[0] == '\0') return false;
 
   size_t len = strlen(hexPayload);
+  satUartOpen();   // a V2 light sleep releases it between messages
 
   switch (detectedType) {
     case SAT_KIM1:
@@ -375,7 +408,15 @@ bool satModuleSendData(const char *hexPayload) {
         writeLogFile("SAT MSG_ERR: payload too long for KIM1 (" + String(len) + " hex chars, max " + String(SAT_MAX_HEX_KIM) + ")");
         return false;
       }
-      return KIM.send_data((char *)hexPayload, len) == OK_KIM;
+      {
+        // Same reasoning as the Arribada's last=[...]: empty means the module
+        // said nothing, anything else is it talking, and those want opposite fixes.
+        const RetStatusKIMTypeDef st = KIM.send_data((char *)hexPayload, len);
+        if (st != OK_KIM) {
+          writeLogFile("KIM1 TX status " + String((int)st) + " last=[" + String(KIM.last_response()) + "]");
+        }
+        return st == OK_KIM;
+      }
 
     case SAT_ARRIBADA: {
       // Re-select the MAC profile first. The module boots with +KMAC=0 and
@@ -461,9 +502,26 @@ bool satModuleSendData(const char *hexPayload) {
 void satModuleEnd() {
   if (detectedType == SAT_ARRIBADA) {
     Arribada.end();
+  } else {
+    kimSerial.end();
   }
-  // The KIM driver releases its UART inside set_sleepMode(true), which the
-  // existing power-down path already calls.
+  uartOpen = false;
+}
+
+void satModuleReleaseLines() {
+  satModuleEnd();
+  pinMode(TX_KIM, OUTPUT);
+  digitalWrite(TX_KIM, LOW);
+}
+
+void satModuleRestoreLines() {
+  if (detectedType != SAT_UNKNOWN) {
+    satUartOpen();
+  } else {
+    // Not known yet (a power cycle re-probes afterwards): the raw port is
+    // enough to hold the line idle, and detection reopens it its own way.
+    kimSerial.begin(KIMBaud, SERIAL_8N1, RX_KIM, TX_KIM);
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -484,24 +542,26 @@ bool satModulePowerCycle() {
   // level, the current finds its way in through the receiver's ESD clamp and
   // keeps the shared rail half alive, so the module never really drops and the
   // cycle achieves nothing.
-  satModuleEnd();
-  kimSerial.end();
-  pinMode(TX_KIM, OUTPUT);
-  digitalWrite(TX_KIM, LOW);
+  satModuleReleaseLines();
 
   ConnectPeripherals(false, GPS_KIM);
   delay(SAT_MODULE_POWERCYCLE_MS);
+  // Forget first, so the line comes back up through the raw port: the type
+  // is re-probed below anyway.
+  satModuleForget();
   ConnectPeripherals(true, GPS_KIM);
+  satModuleRestoreLines();
   delay(SAT_MODULE_BOOT_MS + SAT_MODULE_SETTLE_MS);
 
-  // The receiver came back with the module - it is the same rail - so its port
-  // has to be reopened or the GPS stays silent for the rest of the session.
-  gpsSerialBegin();
+  // On a V1 the receiver came back with the module - it is the same rail - so
+  // its port has to be reopened or the GPS stays silent for the rest of the
+  // session. A V2 GPS has its own switch and was never touched.
+  if (!boardIsV2()) gpsSerialBegin();
 
-  // Probe again from scratch. The cached type is not to be trusted across a
-  // module that has just misbehaved - and if the shield were swapped on the
-  // bench between cycles, this is what notices.
-  satModuleForget();
+  // Probe again from scratch (forgotten above). The cached type is not to be
+  // trusted across a module that has just misbehaved - and if the shield were
+  // swapped on the bench between cycles, this is what notices.
+  kimSerial.end();
   const bool ok = (satModuleDetect() != SAT_UNKNOWN) && satModuleCheck();
   writeLogFile(ok ? "SAT module answered again after the power cycle"
                   : "SAT module still silent after the power cycle");

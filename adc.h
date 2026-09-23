@@ -3,9 +3,10 @@
 
 // Battery-voltage acquisition.
 //
-// CURRENT HARDWARE: rudimentary analog read of ADC_PIN through a resistor divider.
-// NEW HARDWARE (in design): the ADC becomes a digital module over I2C. Only the
-// bodies in adc.cpp change; this interface and the outputs stay the same:
+// V1: analog read of ADC_PIN through a resistor divider.
+// V2: the MAX17048 gauge over I2C, which also gives the state of charge (logged,
+// not transmitted). Which one runs is decided by board.h; the interface and the
+// outputs are the same for both:
 //   - global Vin_ADC  <- measured battery voltage (read by the battery checks)
 //   - ADCreadHex      <- raw ADC value as 2 hex chars, for the Kineis message
 

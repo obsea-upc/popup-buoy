@@ -185,6 +185,8 @@ class KIM{
 		char* get_FRQ();
 		char* get_TCXOWU();
     char* get_AFMT();
+    // Last line the module sent back, for the log when a command fails.
+    const char* last_response() const { return response; }
  /** @} */
 
 /** @defgroup setGroup Set functions

@@ -26,7 +26,10 @@ char PWR2[10] = "1000";  // TX power (raised from 500 to 1000)
 // this used to hold, our own power sweep puts frame reception at a few percent,
 // which would leave a surfaced buoy effectively silent to both.
 char PWR3[10] = "1000";
-char AFMT[] = "1";       // enable standard KIM messages
+// Standard KIM messages, spelled out in full. KIM1 firmware V2.1 takes the
+// short "1" and fills in the rest; V2.0 answers +ERROR=5 to it and only takes
+// the full form (V2 bench, 23 Sep 2026). Both end at +AFMT=1,16,32.
+char AFMT[] = "1,16,32";
 extern const int delayKIM = 10;  // delay between KIM parameter sets
 char kineisMessage[27];      // GPS/position message buffer (internal)
 char kineisdataMessage[47];  // seabed-data message buffer (internal)

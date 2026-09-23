@@ -70,8 +70,14 @@ inline const char* stateName(int s) {
 // ----- Definitions for push button
 #define PB_1 25  //12
 #define PB_2 26  //14
-#define PB_3 27  //27
-//#define PB_3 39 
+// PB_3 depends on the board and is defined in board.h
+#define PB_3_V1 27
+#define PB_3_V2 39   // input only: R18 10k pull-up on the board
+
+//------ Board detection (see board.cpp)
+#define BOARD_DETECT_PIN 39       // V2: pulled up by R18. V1: 0 V
+#define BOARD_NMEA_LISTEN_MS 1500 // V1 GPS answers ~70 ms after GPIO13 rises
+#define MAX17048_ADDR 0x36        // V2 battery gauge, only answers with a battery fitted
 
 // ----- Definitions for leds
 #define LED_R 32  //25
@@ -79,13 +85,13 @@ inline const char* stateName(int s) {
 #define LED_G 0   //32
 
 //------ Definition for power relay
-#define GPS_KIM 13  //future just KIM
+#define GPS_KIM 13  // V1: GPS + satellite module rail. V2: satellite module only
 #define SD_card 14
-//#define GPS 27 future just GPS 
+#define GPS_EN_V2 27  // V2 only: the GPS load switch (R17 100k pull-down)
 #define DISCONNECT_PHER  //Disconnect KIM and GPS between transmissions
 
 //------ Definition ADC read
-#define ADC_PIN 36
+#define ADC_PIN 36  // V1 only; floating on a V2, which reads the MAX17048 instead
 //#define BAT_CRIT_LEVEL 3.5
 
 //------ Definition for Sleep mode and parameters
@@ -267,6 +273,8 @@ inline const char* stateName(int s) {
 #define RXPin_GPS 4
 #define TXPin_GPS 2
 #define GPSBaud 9600
+#define UBX_BOOT_TIMEOUT_MS 1500  // V2: wait for the NEO-M8N's first NMEA before configuring it
+#define UBX_ACK_TIMEOUT_MS 1000   // V2: UBX answers come back in tens of ms
 
 //------ Definition for KINEIS module
 // Spacing between two satellite transmissions, measured transmission to

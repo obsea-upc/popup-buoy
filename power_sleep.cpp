@@ -4,6 +4,8 @@
 #include "eeprom_store.h"   // for eepromReadSyncTime
 #include "wifi_http.h"      // for wifiShutdown
 #include "gps.h"            // for gpsSerialBegin
+#include "board.h"
+#include "sat_module.h"     // for satModuleReleaseLines
 #include <RTClib.h>
 #include <SD.h>
 #include <esp_sleep.h>
@@ -57,6 +59,14 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
       pinMode(TXPin_GPS, OUTPUT);
       digitalWrite(TXPin_GPS, LOW);
 
+      // Same mechanism on the satellite side of a V2, where it matters far more:
+      // VKIM is never switched there, GPIO13 only drives ON/OFF, and with GPIO17
+      // held high as the idle UART level the KIM stays in Standby at 3.5 mA for
+      // the whole sleep - 40/40 alive on the bench, 22 Sep 2026. The next
+      // transmission reopens the port. The V1 keeps its measured behaviour: its
+      // relay cuts the supply itself and the line only leaked 1/40.
+      if (boardIsV2()) satModuleReleaseLines();
+
       ConnectPeripherals(false, GPS_KIM);  // turn off power to all devices (not in case &)
       delay(5);
       ConnectPeripherals(false, SD_card);
@@ -77,6 +87,7 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
   //Turn on peripherals (except for case 6)
     if (currentState != ST_FRM){
       ConnectPeripherals(true, GPS_KIM);
+      if (boardIsV2()) satModuleRestoreLines();   // at power-on, not at the next send
       delay(5);
       ConnectPeripherals(true, SD_card);
       // Give the satellite module time to boot before anyone talks to it. Now
@@ -86,11 +97,14 @@ void goToSleep(int sleeping_time) {  //no need to turn off pheriperals, already 
       // than +OK, so the profile was never set and the next AT+TX was refused
       // with +ERROR=253 - a whole DM cycle lost per message.
       delay(SAT_MODULE_BOOT_MS);
-      // The port has to be reopened here. gpsAcquireData() does not open it - it
-      // is opened once at boot and once in gpsAcquireSatellites, neither of which
-      // runs again in DM - so without this the receiver would go silent for the
-      // rest of the drift after the first light sleep.
-      gpsSerialBegin();
+      // V1: the port has to be reopened here. gpsAcquireData() does not open it
+      // there - it is opened once at boot and once in gpsAcquireSatellites,
+      // neither of which runs again in DM - so without this the receiver would
+      // go silent for the rest of the drift after the first light sleep.
+      // V2: the GPS is off between fixes and gpsAcquireData() powers it and
+      // opens the port together; opening it here would feed the idle line into
+      // an unpowered module.
+      if (!boardIsV2()) gpsSerialBegin();
     }
   //initialize again SD
     if (!SD.begin()) {

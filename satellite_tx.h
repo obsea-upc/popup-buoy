@@ -37,7 +37,7 @@ extern const char *SD_progress_filename;
 // KIM transmission parameters (defined in satellite_tx.cpp).
 extern char PWR2[10];
 extern char PWR3[10];
-extern char AFMT[2];
+extern char AFMT[8];
 extern const int delayKIM;
 
 // Data-transmission progress counters (defined in satellite_tx.cpp).

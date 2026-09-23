@@ -4,7 +4,15 @@
 // Open the GPS serial port (larger RX buffer than the library default, see gps.cpp).
 void gpsSerialBegin();
 
-// Configure the receiver (sea dynamic model, 2D-only fix) and feed it warm-start hints.
+// Power the GPS up or down, port included. V2 only: there the GPS has its own
+// switch and is on only while a fix is being taken. On a V1 the GPS shares the
+// satellite module's rail, which the sketch manages, so these do nothing.
+void gpsPowerOn();
+void gpsPowerOff();
+
+// V2: set the sea dynamic model and AssistNow Autonomous, both in the
+// receiver's RAM, so at every power-up. V1: its clone receiver takes no
+// configuration; only a debug probe runs, with GPS_DEBUG_NMEA_GSA.
 void configGPS();
 
 // Quick check (30 s) for any satellite in view. Returns true on first satellite seen.
