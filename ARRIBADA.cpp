@@ -250,6 +250,13 @@ RetStatusARRIBADATypeDef ARRIBADA::set_KMAC(uint8_t profile) {
   return send_ATCommand(command, nullptr, 5000);
 }
 
+int ARRIBADA::get_KMAC() {
+  if (send_ATCommand("AT+KMAC=?", "+KMAC=") != OK_ARRIBADA) return -1;
+  const char *p = strstr(response, "+KMAC=");
+  if (p == nullptr || !isdigit((unsigned char)p[6])) return -1;
+  return atoi(p + 6);
+}
+
 RetStatusARRIBADATypeDef ARRIBADA::send_data(
     const char data[],
     uint16_t len) {

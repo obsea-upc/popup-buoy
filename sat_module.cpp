@@ -27,6 +27,7 @@ static char moduleID[32] = "";
 // own; that pin is gone, so the port is opened here, on first use after
 // detection and again after anything released it.
 static bool uartOpen = false;
+static bool ensureArribadaKmac();   // defined next to satModuleSendData()
 
 static void satUartOpen() {
   if (uartOpen) return;
@@ -377,19 +378,38 @@ bool satModuleSetFormat(const char *format) {
     }
 
     case SAT_ARRIBADA:
-      // No AT+AFMT here; the equivalent knob is the MAC profile, and that is
-      // set before every transmission rather than once per session because the
-      // module forgets it whenever it loses power. Setting it now as well only
-      // reports early whether the module is answering.
-      if (Arribada.set_KMAC() != OK_ARRIBADA) {
-        writeLogFile("ARRIBADA KMAC_ERR at configuration");
-        return false;
-      }
-      return true;
+      // No AT+AFMT here; the equivalent knob is the MAC profile, checked again
+      // before every transmission. Checking it now reports early whether the
+      // module is answering.
+      return ensureArribadaKmac();
 
     default:
       return false;
   }
+}
+
+// Makes sure the Arribada has its MAC profile before it is asked to transmit,
+// reading it first and writing it only when it is wrong. The Oct 2025 build
+// loses it at every power cut; newer builds reload it at boot, and on those the
+// write is now skipped. Arribada confirmed on 23 Sep 2026 that AT+KMAC never
+// writes flash, so the old write-every-time was harmless - this is about not
+// sending commands that do nothing, and about knowing from the log which
+// modules still forget it: the first rewrite of each wake is logged.
+static bool kmacRewriteLogged = false;
+
+static bool ensureArribadaKmac() {
+  const int profile = Arribada.get_KMAC();
+  if (profile == ARRIBADA_KMAC_PROFILE) return true;
+  const bool ok = Arribada.set_KMAC() == OK_ARRIBADA;
+  if (!ok) {
+    writeLogFile("ARRIBADA KMAC_ERR read=" + String(profile) + " last=["
+                 + String(Arribada.last_response()) + "] - transmission will be refused");
+  } else if (!kmacRewriteLogged) {
+    writeLogFile("ARRIBADA KMAC was " + String(profile) + ", set to "
+                 + String(ARRIBADA_KMAC_PROFILE) + " (logged once per wake)");
+    kmacRewriteLogged = true;
+  }
+  return ok;
 }
 
 bool satModuleSendData(const char *hexPayload) {
@@ -419,20 +439,10 @@ bool satModuleSendData(const char *hexPayload) {
       }
 
     case SAT_ARRIBADA: {
-      // Re-select the MAC profile first. The module boots with +KMAC=0 and
-      // refuses to transmit in that state (+ERROR=253), the setting does not
-      // survive a power cut, and goToSleep() drops GPIO13 between messages -
-      // so once per session is not enough, it has to be here.
-      //
-      // This does not wear the module's flash out: the fact that the setting is
-      // lost on power-down is precisely what shows it lives in RAM. Revisit if
-      // the module firmware is ever updated - a build that makes KMAC survive a
-      // power cycle is one that writes it to flash, and then this should happen
-      // once per power-up rather than once per message.
-      if (Arribada.set_KMAC() != OK_ARRIBADA) {
-        writeLogFile("ARRIBADA KMAC_ERR last=[" + String(Arribada.last_response())
-                     + "] - transmission will be refused");
-      }
+      // Checked before every transmission rather than once per session: on the
+      // old build the profile goes with every power cut, and goToSleep() drops
+      // GPIO13 between messages.
+      ensureArribadaKmac();
 
       char padded[SAT_MAX_HEX_ARRIBADA + 1];
       size_t paddedLen = padForArribada(hexPayload, padded, sizeof(padded));

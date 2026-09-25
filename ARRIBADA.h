@@ -90,12 +90,15 @@ class ARRIBADA {
 
   // Selects the Kineis MAC profile (AT+KMAC=<profile>).
   //
-  // This is not optional and it is not persistent. The module boots with
-  // +KMAC=0 and answers +ERROR=253 to every AT+TX in that state; measured on
-  // this hardware, the setting is also lost whenever the module loses power.
-  // Since the buoy drops the module's supply between messages, it has to be
-  // re-sent before each transmission - satModuleSendData() does that.
+  // Without it the module answers +ERROR=253 to every AT+TX. The Oct 2025 build
+  // (5ad8cd5) boots with +KMAC=0 and forgets it at every power cut; from d725755
+  // on, the module reloads the profile at boot by itself. Arribada confirmed on
+  // 23 Sep 2026 that AT+KMAC never writes flash, in either build.
   RetStatusARRIBADATypeDef set_KMAC(uint8_t profile = ARRIBADA_KMAC_PROFILE);
+
+  // The active MAC profile (AT+KMAC=?), or -1 when the module did not answer.
+  // Replies seen: "+KMAC=0" (old build after boot), "+KMAC=1,000000000000".
+  int get_KMAC();
 
   // Sends AT+TX=<hex payload>.
   // Returns OK when the module accepts/queues the command (+OK).
