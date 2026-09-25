@@ -172,6 +172,18 @@ void setup() {
       // The V2 GPS has its own switch and stays off until gpsAcquireData() needs it.
       pinMode(GPS_EN_V2, OUTPUT);
       digitalWrite(GPS_EN_V2, LOW);
+    } else {
+      // On a V1 the original Kineis KIM1 shield takes its ON/OFF from GPIO12, the
+      // pin the KIM library used to drive itself. With the library no longer
+      // touching it the line sat low and the module answered once, by chance,
+      // then went silent: buoy 1, 24 Sep 2026, "SAT MODULE DEAD" after three
+      // power cycles. Held high for the whole wake, as the library left it; the
+      // GPS_KIM relay is what actually switches the module. Harmless where it is
+      // not wired (the minimal shield takes ON/OFF from the relay output). The
+      // shield's pull-down keeps it low through a reset, so the strapping pin
+      // still reads low at boot.
+      pinMode(KIM_ONOFF_V1, OUTPUT);
+      digitalWrite(KIM_ONOFF_V1, HIGH);
     }
     digitalWrite(SD_card, HIGH);
     if (currentState == ST_DM or currentState == ST_LOWPWR or currentState == ST_FRM) {

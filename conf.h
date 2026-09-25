@@ -88,6 +88,7 @@ inline const char* stateName(int s) {
 #define GPS_KIM 13  // V1: GPS + satellite module rail. V2: satellite module only
 #define SD_card 14
 #define GPS_EN_V2 27  // V2 only: the GPS load switch (R17 100k pull-down)
+#define KIM_ONOFF_V1 12  // V1 only: ON/OFF of the original Kineis KIM1 shield
 #define DISCONNECT_PHER  //Disconnect KIM and GPS between transmissions
 
 //------ Definition ADC read
