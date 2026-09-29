@@ -149,7 +149,11 @@ inline const char* stateName(int s) {
 // MAX_GPS_TIMEOUT is 150 s on both cards. Staying awake through a shorter gap is
 // cheaper than sleeping and re-acquiring. This also subsumes the overlapping
 // case, which used to need its own branch.
-#define SPP_MERGE_GAP_S 150
+//
+// 90 s from 28 Sep 2026 (Matias): 150 s kept the buoy transmitting through gaps
+// where nothing was overhead, which helped push 15 deg over the CLS limit of 511
+// messages in 511 min. Two passes 90-150 s apart now get two wakes.
+#define SPP_MERGE_GAP_S 90
 
 // A wake spends its first seconds on the GPS fix before anything can go out, so
 // the messages a session yields are (duration - fix) / interval.
@@ -174,9 +178,11 @@ inline const char* stateName(int s) {
 //
 // 2 rather than 5 since the low-elevation campaign of Sep 2026: with MinElev
 // itself at 5, an attribution floor of 5 was no longer below it, and the first
-// messages of every wake - sent early because TIME_LESS_BEFORE_AWAKENING is 120 s
-// and the firmware does not wait for the pass - logged "none". Those pass edges
-// are exactly what that campaign exists to characterise.
+// messages of every wake - sent early, because back then the lead was 120 s and
+// the firmware did not wait for the pass - logged "none". Those pass edges are
+// exactly what that campaign existed to characterise. Today the lead is 45 s and
+// sppHoldUntilSessionStart() waits for the session, so early messages no longer
+// happen; the floor stays low so pass edges are still named when they are used.
 #define SPP_ATTRIBUTION_MIN_ELEV 2.0f
 
 // Print the whole day's session table over serial on every prediction, marking
@@ -286,7 +292,11 @@ inline const char* stateName(int s) {
 #define GPSBaud 9600
 #define UBX_BOOT_TIMEOUT_MS 1500  // V2: wait for the NEO-M8N's first NMEA before configuring it
 #define UBX_ACK_TIMEOUT_MS 1000   // V2: UBX answers come back in tens of ms
-#define RTC_GPS_MAX_DRIFT_S 30    // correct the RTC from the fix only beyond this (Matias, 22 Sep)
+// Correct the RTC from the fix only beyond this. 30 s until 28 Sep 2026; now 2 s,
+// because the session plan runs on the RTC and the transmit slots below run on GPS
+// time, and the two must agree to the second. A DS3231 drifts ~0.2 s a day, so
+// once set it is rarely touched, and a fix's own jitter is well under 2 s.
+#define RTC_GPS_MAX_DRIFT_S 2
 #define RTC_GPS_MAX_YEARS 10      // a GPS date further than this past the build is rejected
 
 //------ Definition for KINEIS module
@@ -298,6 +308,29 @@ inline const char* stateName(int s) {
 #define INTERVAL_MS 30000        // DM + seabed data: ms between transmissions
 #define FRM_INTERVAL_MS 30000    // Fast Recovery Mode: ms between transmissions
 #define INTERVAL_SEND_MS 6000    //Boosting the message
+// ---- Transmit slots (from 1 Oct 2026) --------------------------------------
+// Buoys deployed together transmit on the same 30 s grid and, being next to each
+// other, reach the satellite with carriers a few kHz apart: when two go out within
+// 3 s of each other the weaker one is lost. Measured 24-28 Sep on buoys 4 and 5:
+// buoy 4 received 11 % of what it sent within 3 s of buoy 5 against 22 % at 4-8 s.
+//
+// So every buoy owns a 5 s slot of the 30 s cycle, aligned to UTC: slot k emits at
+// second k*5 + 2.5 of each half minute (UTC seconds mod 30). Six slots, six buoys.
+// The slot comes from TX_SLOT in conf.txt (0-5); without it, (idBuoy - 1) mod 6.
+// The time base is the GPS fix of the wake, carried on millis() through the light
+// sleeps, so two buoys agree to a few hundred ms.
+//
+// The command has to go out before the emission by the module's own latency,
+// measured 24-28 Sep as the time from the "Sending" line to the satellite's
+// reception timestamp: KIM1 5.9 s (p5-p95 5.2-6.7), Arribada 3.0 s (2.5-4.0).
+#define TX_SLOT_WIDTH_MS 5000
+#define TX_SLOT_COUNT 6
+#define TX_LATENCY_KIM_MS 5900
+#define TX_LATENCY_ARRIBADA_MS 3000
+// Time needed between deciding to wait for a slot and giving the command, so a
+// slot is never chosen that is already too close to be reached.
+#define TX_SLOT_MARGIN_MS 1500
+
 // Floor for the sleep between transmissions. The sleep is whatever is left of
 // the cycle after the GPS search and the module dialogue, so on a slow cycle it
 // shrinks towards this value instead of being added on top of a full-length one.

@@ -3,6 +3,7 @@
 #include "logging.h"
 #include "power_sleep.h"   // for ConnectPeripherals
 #include "board.h"
+#include "satellite_tx.h"   // for txClockSyncGps
 #include <TinyGPSPlus.h>
 #include <RTClib.h>
 #include <SD.h>
@@ -308,6 +309,10 @@ static void syncRtcFromGps() {
     writeLogFile("GPS date " + gpsNow.timestamp() + " rejected as implausible; RTC left alone");
     return;
   }
+
+  // The transmit slots run on this, to the millisecond: the time in the sentence,
+  // its hundredths, and how long ago it was decoded.
+  txClockSyncGps(g, (uint32_t)gps.time.centisecond() * 10 + gps.time.age());
 
   // The date and time were decoded a moment ago; add how long ago so the
   // comparison is against the same instant.

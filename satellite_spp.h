@@ -60,3 +60,10 @@ uint8_t sppSessionPassCount();
 // Peak (midpoint) and end of pass `index`, as unix seconds on the RTC's clock,
 // plus its maximum elevation. False when the index is out of range.
 bool sppSessionPass(uint8_t index, uint32_t &peakUnix, uint32_t &endUnix, uint8_t &elevMax);
+
+// Unix time at which the planned session ends: its last pass drops below MinElev.
+// This, not the end of the pass list above (built at the 2 deg attribution floor),
+// is where transmitting stops. 0 when unknown (no plan, or a power loss since).
+uint32_t sppPlannedSessionEnd();
+// Its start: the first pass of the session coming above MinElev. 0 when unknown.
+uint32_t sppPlannedSessionStart();

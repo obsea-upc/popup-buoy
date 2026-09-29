@@ -1,6 +1,7 @@
 #include "config.h"
 #include "logging.h"
 #include "adc.h"       // for the per-board battery-reading trim
+#include "satellite_tx.h"  // for the transmit slot
 #include <SD.h>
 
 // SD config file (owned by this module; nothing else touches it).
@@ -165,6 +166,14 @@ void getInfoFromConfFile() {
       if (VariableNameStr == "ADC_CAL_B_mV") {
         adcCalB = static_cast<float>(DataFromVariable)/1000;
         writeLogFile("ADC calibration b: " + String(adcCalB, 4) + " V");
+      }
+
+      // Transmit slot of this buoy, 0-5 (conf.h, "Transmit slots"). Optional: without
+      // it the slot is (idBuoy - 1) mod 6, which puts buoys 1 and 7 on the same one -
+      // give every buoy of a deployment its own.
+      if (VariableNameStr == "TX_SLOT") {
+        txSetSlotConfig(DataFromVariable);
+        writeLogFile("TX slot: " + String(DataFromVariable));
       }
 
       // To add other lines in the file, just follow the same architecture with the "=" in the middle and add here an else if with the right condition

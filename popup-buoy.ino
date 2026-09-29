@@ -815,6 +815,10 @@ void loop() {
       // slept here instead of spent transmitting below MinElev.
         if (CoverageState == 1) sppHoldUntilSessionStart();
 
+      // --- TRANSMIT WINDOW --- every emission of this wake has to land inside the
+      // planned session at MinElev (and on this buoy's slot, see conf.h).
+        if (CoverageState == 1) txSetSessionWindow(sppPlannedSessionStart(), sppPlannedSessionEnd());
+
       // --- SENDING MESSAGES PART ---
         if (!moduleReady) {
           writeLogFile("No satellite module this wake. Nothing transmitted; the fix and the prediction still stand.");
@@ -859,10 +863,19 @@ void loop() {
             if (haveData) SendFileKim(fileSendingTime);
 
           } else {
-            uint32_t sessionEnd = 0;
-            for (uint8_t k = 0; k < nPasses; k++) {
-              uint32_t peak, end; uint8_t elevMax;
-              if (sppSessionPass(k, peak, end, elevMax) && end > sessionEnd) sessionEnd = end;
+            // Where the session stops: the planned end at MinElev. The pass list
+            // is built at the 2 deg attribution floor, so the end of its last pass
+            // is where the satellite drops to 2 deg, not to MinElev - stopping
+            // there made every session of the 24-28 Sep campaign run ~3 min long,
+            // about six messages each below MinElev (233 of 233 sessions on buoy 1),
+            // and pushed 15 deg over the CLS limit of 511 messages in 511 min.
+            // Without a plan (power loss since the prediction) fall back to the
+            // scheduled opening - the wake plus the lead - plus the coverage.
+            uint32_t sessionEnd = sppPlannedSessionEnd();
+            if (sessionEnd == 0) {
+              sessionEnd = rtcExt.now().unixtime() - millis() / 1000
+                           + TIME_LESS_BEFORE_AWAKENING + (uint32_t)Decimal_CoverageDuration;
+              txSetSessionWindow(0, sessionEnd);
             }
             uint8_t gpsSent = 0;
 
@@ -880,6 +893,10 @@ void loop() {
 
               const uint32_t nowUnix = rtcExt.now().unixtime();
               if (end <= nowUnix) continue;    // this pass is already over
+              // The list reaches SPP_SESSION_MARGIN_S past the session, so it can hold
+              // a pass of the next session. Aiming at its peak would carry data
+              // past the end of this one.
+              if (peak > sessionEnd) continue;
 
               // Data (or plain sleep, with no file left) until this pass's
               // position window opens, so the message straddles the peak.
@@ -990,6 +1007,7 @@ void loop() {
 
       // --- WAIT FOR THE SESSION TO OPEN --- same as state 4
         if (CoverageState == 1) sppHoldUntilSessionStart();
+        if (CoverageState == 1) txSetSessionWindow(sppPlannedSessionStart(), sppPlannedSessionEnd());
 
       // --- SENDING MESSAGES PART --- this can be moved down
 

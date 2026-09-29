@@ -106,6 +106,22 @@ static void sppCollectPasses(struct PredictionPassConfiguration_t *cfg,
 // and a power loss clears it to false, which only means transmitting at once.
 RTC_DATA_ATTR static bool wakeIntoRunningSession = false;
 
+// Where the planned session ends, in unix seconds: the end of its last pass above
+// MinElev. Kept as an absolute time rather than a duration so that it stays right
+// whatever the wake did before transmitting - a slow fix, the hold, or an overlap
+// restart into a session already running. Same RTC slow memory as the flag above;
+// a power loss clears it to 0, which the transmit schedule reads as "unknown".
+RTC_DATA_ATTR static uint32_t plannedSessionEnd = 0;
+RTC_DATA_ATTR static uint32_t plannedSessionStart = 0;
+
+uint32_t sppPlannedSessionEnd() {
+  return plannedSessionEnd;
+}
+
+uint32_t sppPlannedSessionStart() {
+  return plannedSessionStart;
+}
+
 void sppHoldUntilSessionStart() {
   if (wakeIntoRunningSession) {
     writeLogFile("Woke into a session already running: no hold.");
@@ -123,6 +139,8 @@ void sppHoldUntilSessionStart() {
 
 void runSatellitePassPrediction(bool lowPower) {
   wakeIntoRunningSession = false;   // only the overlap branch below sets it
+  plannedSessionEnd = 0;            // only a successful plan (NextSatellite) sets it
+  plannedSessionStart = 0;
   if (gpsFix) {
 
     SetCounterFailGPSTo_0();  //if we have fixed the gps, set counter to zero cause the counter is valid for consecutive fails
@@ -411,6 +429,8 @@ int NextSatellite(double &gpsLat, double &gpsLong, AopSatelliteEntry_t *aopTable
   // would truncate without saying so.
   const uint32_t sessionEpoch    = sessionStart;
   const uint32_t sessionDuration = sessionEnd - sessionStart;
+  plannedSessionEnd = sessionEnd;
+  plannedSessionStart = sessionStart;
   const uint8_t  earliestIdx     = sppPasses[sessionFirst].sat;
 
   uint8_t sessionElevMax = 0;

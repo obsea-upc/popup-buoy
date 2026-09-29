@@ -72,8 +72,10 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
+# CLS_ACCEPT overrides the answer type: retrieve-kineis-aop only answers
+# application/octet-stream (the AOP comes back as a binary file).
 curl -s -X POST "$API_URL/$ENDPOINT" \
-  -H 'accept: application/json' \
+  -H "accept: ${CLS_ACCEPT:-application/json}" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$REQUEST"

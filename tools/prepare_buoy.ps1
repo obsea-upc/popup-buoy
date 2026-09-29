@@ -33,8 +33,30 @@ param(
   [switch]$SkipRtc,
   [switch]$KeepLog,
   # Check everything and flash nothing. Use it the day before.
-  [switch]$DryRun
+  [switch]$DryRun,
+  # Transmit slot (0-5) written as TX_SLOT in conf.txt. -1 takes it from the fleet
+  # table below, so buoys deployed together never share one.
+  [int]$TxSlot = -1,
+  # Which data file goes on the card when the folder holds one per module
+  # (dataFile_kim.txt / dataFile_arribada.txt, from tools/fountain_image.py). Empty
+  # takes it from the fleet table below.
+  [ValidateSet('', 'kim', 'arribada')][string]$Module = ''
 )
+
+# Satellite module per buoy, 1 Oct 2026: Arribadas (401 MHz, LDA2, 27 dBm) on 1, 2 and
+# 4 - buoy 4 swaps its KIM1, which went deaf in the cold, for one; KIM1 on 5 and 7.
+$moduleTable = @{ 1 = 'arribada'; 2 = 'arribada'; 4 = 'arribada' }
+if (-not $Module) { $Module = if ($moduleTable.ContainsKey($Buoy)) { $moduleTable[$Buoy] } else { 'kim' } }
+
+# Fleet slot table (from 1 Oct 2026, see "Transmit slots" in conf.h): six slots of
+# 5 s in the 30 s cycle. The buoys that fly together get one each; 3 and 6 share
+# the last one, so do not deploy them together without giving one of them another.
+$slotTable = @{ 1 = 0; 2 = 1; 4 = 2; 5 = 3; 7 = 4; 3 = 5; 6 = 5 }
+if ($TxSlot -lt 0) {
+  if (-not $slotTable.ContainsKey($Buoy)) { throw "la boya $Buoy no tiene hueco en la tabla; pasa -TxSlot 0..5" }
+  $TxSlot = $slotTable[$Buoy]
+}
+if ($TxSlot -gt 5) { throw "TxSlot tiene que estar entre 0 y 5" }
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -51,6 +73,13 @@ $plan = @(
   @{ local = 'progressFile.txt'; remote = '/progressFile.txt'; patch = $false }
   @{ local = 'dataFile.txt';    remote = "/PopUpBuoy_$Buoy/dataFile.txt"; patch = $false }
 )
+# A folder with one data file per module (fountain files, from 1 Oct 2026): take the
+# one of this buoy's module. KIM1 frames are 46 hex, Arribada 48.
+$frameHex = 46
+if (Test-Path (Join-Path $Files "dataFile_$Module.txt")) {
+  ($plan | Where-Object { $_.local -eq 'dataFile.txt' }).local = "dataFile_$Module.txt"
+  if ($Module -eq 'arribada') { $frameHex = 48 }
+}
 
 Head "Comprobaciones previas"
 if (-not (Test-Path $Files)) { Die "no existe la carpeta de ficheros: $Files" }
@@ -69,21 +98,23 @@ foreach ($f in $plan) {
 # The data file is the one that is worth checking rather than trusting. Every
 # frame is 46 hex characters after the "<row>:"; anything else means a truncated
 # or half-edited file, and it would be found out four days into a deployment.
-$data = @([IO.File]::ReadAllLines((Join-Path $Files 'dataFile.txt')))
+$dataLocal = ($plan | Where-Object { $_.remote -like '*/dataFile.txt' }).local
+$data = @([IO.File]::ReadAllLines((Join-Path $Files $dataLocal)))
 $bad = 0; $row = 0; $rowsOk = $true
 foreach ($l in $data) {
   if (-not $l) { continue }
   $row++
   $parts = $l -split ':', 2
   if ($parts.Count -ne 2 -or [int]$parts[0] -ne $row) { $rowsOk = $false }
-  if ($parts[-1].Trim().Length -ne 46) { $bad++ }
+  if ($parts[-1].Trim().Length -ne $frameHex) { $bad++ }
 }
-if ($bad -gt 0) { Die "$bad tramas del dataFile no miden 46 caracteres" }
-if (-not $rowsOk) { Die "la numeracion de filas del dataFile no es consecutiva desde 1" }
-Say ("dataFile: {0} filas, todas de 46 caracteres y numeradas en orden" -f $row)
+if ($bad -gt 0) { Die "$bad tramas de $dataLocal no miden $frameHex caracteres" }
+if (-not $rowsOk) { Die "la numeracion de filas de $dataLocal no es consecutiva desde 1" }
+Say ("{0} (modulo {1}): {2} filas, todas de {3} caracteres y numeradas en orden" -f $dataLocal, $Module, $row, $frameHex)
 
-$man = Join-Path $Files 'dataFile.manifest.txt'
-if (Test-Path $man) { Say "manifiesto presente (se queda en tierra, no va a la tarjeta)" }
+foreach ($man in @('dataFile.manifest.txt', "manifest_$Module.json")) {
+  if (Test-Path (Join-Path $Files $man)) { Say "$man presente (se queda en tierra, no va a la tarjeta)" }
+}
 
 # conf.txt: the two values that decide the campaign, said out loud so they are
 # checked by a human and not only by this script.
@@ -94,6 +125,8 @@ if (-not $minElev) { Die "conf.txt no trae MinElev" }
 Say "conf.txt: MinElev=$minElev, repeticiones por linea=$reps"
 if (-not ($conf | Where-Object { $_ -match '^idBuoy=' })) { Die "conf.txt no trae idBuoy" }
 Say "conf.txt: idBuoy se sustituira por $Buoy"
+if (-not ($conf | Where-Object { $_ -match '^TX_SLOT=' })) { Die "conf.txt no trae TX_SLOT (pon TX_SLOT=X)" }
+Say "conf.txt: TX_SLOT se sustituira por $TxSlot (emite en el segundo $($TxSlot * 5 + 2.5) de cada medio minuto)"
 
 foreach ($sk in @('tools\sd_put', 'tools\rtc_set', 'tools\eeprom_state', '.')) {
   if (-not (Test-Path (Join-Path $root $sk))) { Die "falta el sketch $sk" }
@@ -150,7 +183,7 @@ Head "Tarjeta SD"
 Flash 'tools\sd_put' 'sd_put (escritor de SD)'
 
 $tmpConf = Join-Path $env:TEMP ("conf_boya{0}.txt" -f $Buoy)
-($conf | ForEach-Object { $_ -replace '^idBuoy=.*', "idBuoy=$Buoy" }) |
+($conf | ForEach-Object { $_ -replace '^idBuoy=.*', "idBuoy=$Buoy" -replace '^TX_SLOT=.*', "TX_SLOT=$TxSlot" }) |
   Set-Content -Path $tmpConf -Encoding ASCII
 Say "conf.txt preparado para la boya $Buoy"
 
@@ -245,8 +278,16 @@ if ($seenRows -match 'MaxRowDataFile is : (\d+)') {
   else { Say "AVISO: la boya lee $($Matches[1]) filas y subimos $expected"; $ok = $false }
 } else { Say "AVISO: no he visto el numero de filas en el arranque"; $ok = $false }
 
-if ($seenElev -match 'Minimum Elevation: ([\d\.]+)') { Say "MinElev leido por la boya: $($Matches[1])" }
-else { Say "AVISO: no he visto MinElev en el arranque"; $ok = $false }
+if ($seenElev -match 'Minimum Elevation: ([\d\.]+)') {
+  if ([double]$Matches[1] -eq [double]$minElev) { Say "MinElev leido por la boya: $($Matches[1])" }
+  else { Say "AVISO: la boya lee MinElev $($Matches[1]) y conf.txt dice $minElev"; $ok = $false }
+} else { Say "AVISO: no he visto MinElev en el arranque"; $ok = $false }
+
+$seenSlot = $boot | Where-Object { $_ -match 'TX slot: (\d+)' } | Select-Object -Last 1
+if ($seenSlot -match 'TX slot: (\d+)') {
+  if ([int]$Matches[1] -eq $TxSlot) { Say "hueco de transmision leido por la boya: $($Matches[1])" }
+  else { Say "AVISO: la boya lee el hueco $($Matches[1]) y se pidio $TxSlot"; $ok = $false }
+} else { Say "AVISO: no he visto TX slot en el arranque (firmware sin huecos?)"; $ok = $false }
 
 if ($seenState -match ': (\w+)') {
   $st = $Matches[1]

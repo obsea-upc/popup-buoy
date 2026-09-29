@@ -32,7 +32,10 @@ char PWR3[10] = "1000";
 char AFMT[] = "1,16,32";
 extern const int delayKIM = 10;  // delay between KIM parameter sets
 char kineisMessage[27];      // GPS/position message buffer (internal)
-char kineisdataMessage[47];  // seabed-data message buffer (internal)
+// Seabed-data message buffer (internal). 48 hex + NUL: the Arribada data file
+// (from 1 Oct 2026) fills its 24-byte LDA2 frame instead of padding a 23-byte one,
+// and a 47-char buffer silently cut those lines to 46.
+char kineisdataMessage[49];
 char *new_line;              // current data line being sent (internal)
 
 // Data-transmission progress owned by this module (RowProgress/MaxRowDataFile/MaxNbrMsgSendingDataFile in satellite_tx.h).
@@ -65,6 +68,120 @@ static bool cycleArmed = false;
 // 2026 minutes before its module went silent for good - that is the pattern
 // this watches for, while it is still recoverable.
 static int msgErrStreak = 0;
+
+// ---------------------------------------------------------------------------
+// Transmit slots - see "Transmit slots" in conf.h for the why and the numbers.
+//
+// Every emission is placed on this buoy's slot of a UTC-aligned 30 s grid, and
+// only if it falls inside the window it belongs to: the planned session at
+// MinElev and, within it, the stretch the caller is filling (data up to a pass
+// peak, the position at the peak, data to the end). A slot that would land past
+// either limit is not used - the message is simply not sent.
+//
+// FRM keeps its own cadence (sleepRestOfCycle): it transmits with no pass plan,
+// for a boat nearby rather than a satellite, and its spacing is its own.
+// ---------------------------------------------------------------------------
+extern int idBuoy;
+
+static int64_t utcBaseMs = 0;        // UTC in ms = utcBaseMs + millis()
+static bool    utcFromGps = false;   // set by the fix of this wake
+static bool    utcKnown = false;
+static int     txSlotConfigured = -1;
+static uint32_t txWindowStart = 0, txWindowEnd = 0;   // unix s, 0 = open
+static int64_t lastEmissionMs = 0;
+static bool    slotAnnounced = false;
+
+void txClockSyncGps(uint32_t unixSec, uint32_t msIntoSecond) {
+  utcBaseMs = (int64_t)unixSec * 1000 + (int64_t)msIntoSecond - (int64_t)millis();
+  utcFromGps = true;
+  utcKnown = true;
+}
+
+void txSetSlotConfig(int slot) {
+  txSlotConfigured = slot;
+}
+
+void txSetSessionWindow(uint32_t startUnix, uint32_t endUnix) {
+  txWindowStart = startUnix;
+  txWindowEnd = endUnix;
+}
+
+// Without a fix this wake, fall back on the RTC, aligned to its second edge so
+// the fraction of a second is not lost. Costs at most a second, once per wake.
+static void ensureUtcClock() {
+  if (utcKnown) return;
+  const uint32_t s0 = rtcExt.now().unixtime();
+  const uint32_t t0 = millis();
+  uint32_t s = s0;
+  while (s == s0 && millis() - t0 < 1100) { delay(5); s = rtcExt.now().unixtime(); }
+  utcBaseMs = (int64_t)s * 1000 - (int64_t)millis();
+  utcKnown = true;
+  writeLogFile("TX slots: no GPS time this wake, using the RTC");
+}
+
+static int64_t utcNowMs() {
+  ensureUtcClock();
+  return utcBaseMs + (int64_t)millis();
+}
+
+static int txSlot() {
+  if (txSlotConfigured >= 0 && txSlotConfigured < TX_SLOT_COUNT) return txSlotConfigured;
+  const int id = idBuoy > 0 ? idBuoy : 1;
+  return (id - 1) % TX_SLOT_COUNT;
+}
+
+static int64_t txLatencyMs() {
+  return satModuleType() == SAT_ARRIBADA ? TX_LATENCY_ARRIBADA_MS : TX_LATENCY_KIM_MS;
+}
+
+static bool slotsActive() {
+  return currentState != ST_FRM;
+}
+
+// Waits for the next slot whose emission falls no later than deadlineMs (UTC) and
+// inside the session window, then returns true right as the command must go out.
+// Returns false, without waiting, when no such slot is left.
+static bool txAwaitSlot(int64_t deadlineMs) {
+  const int64_t lat = txLatencyMs();
+  const int64_t wakeCost = SAT_MODULE_BOOT_MS + SAT_MODULE_SETTLE_MS;
+  const int64_t cycle = INTERVAL_MS;
+  const int64_t centre = (int64_t)txSlot() * TX_SLOT_WIDTH_MS + TX_SLOT_WIDTH_MS / 2;
+
+  int64_t earliest = utcNowMs() + lat + TX_SLOT_MARGIN_MS;
+  if (lastEmissionMs && earliest < lastEmissionMs + cycle) earliest = lastEmissionMs + cycle;
+  if (txWindowStart && earliest < (int64_t)txWindowStart * 1000) earliest = (int64_t)txWindowStart * 1000;
+
+  // First instant >= earliest that sits on this buoy's slot centre.
+  int64_t phase = (earliest - centre) % cycle;
+  if (phase < 0) phase += cycle;
+  const int64_t emission = phase == 0 ? earliest : earliest - phase + cycle;
+
+  int64_t limit = deadlineMs;
+  if (txWindowEnd && (int64_t)txWindowEnd * 1000 < limit) limit = (int64_t)txWindowEnd * 1000;
+  if (emission > limit) return false;
+
+  if (!slotAnnounced) {
+    slotAnnounced = true;
+    writeLogFile("TX slot " + String(txSlot()) + ": emissions at second " + String(centre / 1000.0, 1)
+                 + " of every half minute, clock from " + String(utcFromGps ? "GPS" : "RTC"));
+  }
+
+  const int64_t command = emission - lat;
+  const int64_t waitMs = command - utcNowMs();
+  // Long waits are slept with the rail off, as between messages before; the wake
+  // path then spends wakeCost bringing the module back before we can talk to it.
+  if (waitMs - wakeCost > 1500) goToSleep((int)((waitMs - wakeCost) / 1000));
+  const int64_t rest = command - utcNowMs();
+  if (rest > 0) delay((uint32_t)rest);
+
+  lastEmissionMs = emission;
+  return true;
+}
+
+// Deadline for a stretch that starts now and lasts `seconds`, on the slot clock.
+static int64_t deadlineIn(int seconds) {
+  return utcNowMs() + (int64_t)seconds * 1000;
+}
 
 // Applies the per-state power and the message format. Split out of
 // configureKIM() so the recovery path can reapply it after a power cycle
@@ -237,10 +354,23 @@ static void logTransmission(const char *kind, bool ok) {
 // messages proper when the campaign is analysed - they are the same message on
 // the air.
 static bool sendPositionBurst(int sendRepeat, int waitRepeat, const char *kind) {
+  // With slots, each copy goes out on this buoy's slot, and a copy whose slot would
+  // fall outside the session is not sent at all. One cycle of slack on top of the
+  // burst: the first slot can be up to a cycle plus the module latency away, and
+  // without it the position on a pass peak could be dropped. The number of copies
+  // is bounded by sendRepeat, and the end of the session by the window.
+  const int64_t deadlineMs = deadlineIn((sendRepeat + 1) * (waitRepeat / 1000));
 
   for (int i = 0; i < sendRepeat; i++) {
-    beginCycleIfNeeded();
     currentState = eepromReadState();
+    if (slotsActive()) {
+      if (!txAwaitSlot(deadlineMs)) {
+        writeLogFile("No slot left in the session for position message " + String(i + 1) + "/" + String(sendRepeat));
+        break;
+      }
+    } else {
+      beginCycleIfNeeded();
+    }
     const bool ok = sendWithRecovery(kineisMessage);
     if (ok) {
       delay(INTERVAL_SEND_MS);
@@ -249,7 +379,7 @@ static bool sendPositionBurst(int sendRepeat, int waitRepeat, const char *kind) 
       writeLogFile(" " + String(satModuleName()) + " MSG_ERR");
     }
     logTransmission(kind, ok);
-    sleepRestOfCycle(waitRepeat);
+    if (!slotsActive()) sleepRestOfCycle(waitRepeat);
   }
   return true;
 }
@@ -332,8 +462,10 @@ void SendGPSMessage(int timeSending) {
   sendGPSviaKIM(sendRepeat, cycleMs);
 }
 
+// With slots active the caller has already waited for the slot (txAwaitSlot in
+// SendFileKim); without them this keeps the old fixed cadence.
 bool SendDataMessage() {
-  beginCycleIfNeeded();
+  if (!slotsActive()) beginCycleIfNeeded();
   writeLogFile("Sending : " + String(kineisdataMessage));
   const bool ok = sendWithRecovery(kineisdataMessage);
   if (ok) {
@@ -344,7 +476,7 @@ bool SendDataMessage() {
   }
   logTransmission("DATA", ok);
   // Seabed data only ever goes out in DM, so it keeps the 30 s DM spacing.
-  sleepRestOfCycle(INTERVAL_MS);
+  if (!slotsActive()) sleepRestOfCycle(INTERVAL_MS);
   return ok;
 }
 
@@ -448,6 +580,12 @@ void SendFileKim(int time_to_send) {
     // pass are worth one more data line, and overrunning the predicted end by a
     // few seconds costs nothing while stopping short costs a message.
     NbrMsgToSend = (time_to_send + (INTERVAL_MS / 1000) - 1) / (INTERVAL_MS / 1000);
+    // With slots the stretch ends at its deadline instead: a message goes out only
+    // if its slot falls inside it (and inside the session). The count becomes a
+    // ceiling, one above the plain division so the slot phase never costs one.
+    const bool slotted = slotsActive();
+    const int64_t deadlineMs = deadlineIn(time_to_send);
+    if (slotted) NbrMsgToSend += 1;
     while (NbrMsgToSend > 0) {                                    // Looping the instructions until the time is over, until there are no messages to send
       int row = RowProgress;
       while (row <= MaxRowDataFile) {  // Loop to get all the row from the data_file
@@ -476,6 +614,10 @@ void SendFileKim(int time_to_send) {
               SaveInProgressFile(row, N);  // We save in the progressfile where we are when the time is over
             }
             break;
+          }
+          if (slotted && !txAwaitSlot(deadlineMs)) {
+            NbrMsgToSend = 0;   // no slot left in this stretch: the check above saves progress and stops
+            continue;
           }
           SerialPrintDebugln(" The line to send is : " + String(new_line));
           strncpy(kineisdataMessage, new_line, sizeof(kineisdataMessage) - 1);

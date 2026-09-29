@@ -30,6 +30,17 @@ void SendFileKim(int time_to_send);
 void SaveInProgressFile(int CurrentRow, int CurrentNbrSent);
 void countLinesInDataFile();
 
+// --- Transmit slots (conf.h, "Transmit slots") ---
+// Sets the UTC time base from the GPS fix: at this instant UTC is unixSec plus
+// msIntoSecond milliseconds. Called by gps.cpp as soon as the fix is in.
+void txClockSyncGps(uint32_t unixSec, uint32_t msIntoSecond);
+// Which slot of the 30 s cycle this buoy owns: TX_SLOT from conf.txt (0-5), or -1
+// to derive it from idBuoy.
+void txSetSlotConfig(int slot);
+// The window every emission of this wake must fall in, in unix seconds: the planned
+// session at MinElev. 0, 0 lifts it (no coverage: the recovery messages).
+void txSetSessionWindow(uint32_t startUnix, uint32_t endUnix);
+
 // Seabed-data and send-progress file paths (defined in satellite_tx.cpp).
 extern char *SD_data_filename;
 extern const char *SD_progress_filename;
