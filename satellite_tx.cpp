@@ -83,18 +83,52 @@ static int msgErrStreak = 0;
 // ---------------------------------------------------------------------------
 extern int idBuoy;
 
-static int64_t utcBaseMs = 0;        // UTC in ms = utcBaseMs + millis()
-static bool    utcFromGps = false;   // set by the fix of this wake
-static bool    utcKnown = false;
+// The slot clock. millis() alone is not enough: through a light sleep it runs on
+// the ESP32's internal RC oscillator and drifted ~86 ms per 30 s cycle on the V2
+// bench (30 Sep 2026) - several seconds over a session, enough for two buoys'
+// slots to meet. So the DS3231 (+-2 ppm) carries the time between messages: the
+// fix measures where UTC falls against the RTC's second edge, and after every
+// sleep the clock is re-anchored on that edge. millis() only bridges the few
+// seconds awake since the last anchor.
+static int64_t rtcOffsetMs = 0;      // UTC - RTC, in ms, measured at the fix
+static bool    rtcOffsetKnown = false;
+static bool    utcFromGps = false;   // offset taken from the fix of this wake
+static int64_t anchorUtcMs = 0;      // UTC at the last RTC second edge
+static uint32_t anchorMillis = 0;    // millis() at that edge
 static int     txSlotConfigured = -1;
 static uint32_t txWindowStart = 0, txWindowEnd = 0;   // unix s, 0 = open
 static int64_t lastEmissionMs = 0;
 static bool    slotAnnounced = false;
 
+// Waits for the RTC's seconds to tick over and returns the new second, with the
+// millis() of the tick in atMillis. At most a second; polled every 2 ms.
+static uint32_t rtcSecondEdge(uint32_t &atMillis) {
+  const uint32_t s0 = rtcExt.now().unixtime();
+  const uint32_t t0 = millis();
+  uint32_t s = s0;
+  while (s == s0 && millis() - t0 < 1100) { delay(2); s = rtcExt.now().unixtime(); }
+  atMillis = millis();
+  return s;
+}
+
+static void anchorOnRtc() {
+  uint32_t m;
+  const uint32_t s = rtcSecondEdge(m);
+  anchorUtcMs = (int64_t)s * 1000 + rtcOffsetMs;
+  anchorMillis = m;
+}
+
+// Called by gps.cpp once the fix is in and the RTC has been corrected if needed:
+// right now UTC is unixSec plus msIntoSecond ms.
 void txClockSyncGps(uint32_t unixSec, uint32_t msIntoSecond) {
-  utcBaseMs = (int64_t)unixSec * 1000 + (int64_t)msIntoSecond - (int64_t)millis();
+  const int64_t base = (int64_t)unixSec * 1000 + (int64_t)msIntoSecond - (int64_t)millis();
+  uint32_t m;
+  const uint32_t s = rtcSecondEdge(m);
+  rtcOffsetMs = (base + (int64_t)m) - (int64_t)s * 1000;
+  anchorUtcMs = base + (int64_t)m;
+  anchorMillis = m;
+  rtcOffsetKnown = true;
   utcFromGps = true;
-  utcKnown = true;
 }
 
 void txSetSlotConfig(int slot) {
@@ -106,22 +140,23 @@ void txSetSessionWindow(uint32_t startUnix, uint32_t endUnix) {
   txWindowEnd = endUnix;
 }
 
-// Without a fix this wake, fall back on the RTC, aligned to its second edge so
-// the fraction of a second is not lost. Costs at most a second, once per wake.
+// Without a fix this wake the RTC is taken as UTC (it is kept within 2 s of the
+// GPS by gps.cpp). An anchor older than a few seconds may have a sleep in between
+// - the hold before the session, or the wait for a slot - so it is renewed.
 static void ensureUtcClock() {
-  if (utcKnown) return;
-  const uint32_t s0 = rtcExt.now().unixtime();
-  const uint32_t t0 = millis();
-  uint32_t s = s0;
-  while (s == s0 && millis() - t0 < 1100) { delay(5); s = rtcExt.now().unixtime(); }
-  utcBaseMs = (int64_t)s * 1000 - (int64_t)millis();
-  utcKnown = true;
-  writeLogFile("TX slots: no GPS time this wake, using the RTC");
+  if (!rtcOffsetKnown) {
+    rtcOffsetMs = 0;
+    rtcOffsetKnown = true;
+    anchorOnRtc();
+    writeLogFile("TX slots: no GPS time this wake, using the RTC");
+    return;
+  }
+  if (millis() - anchorMillis > 5000) anchorOnRtc();
 }
 
 static int64_t utcNowMs() {
   ensureUtcClock();
-  return utcBaseMs + (int64_t)millis();
+  return anchorUtcMs + (int64_t)(millis() - anchorMillis);
 }
 
 static int txSlot() {
@@ -169,8 +204,13 @@ static bool txAwaitSlot(int64_t deadlineMs) {
   const int64_t command = emission - lat;
   const int64_t waitMs = command - utcNowMs();
   // Long waits are slept with the rail off, as between messages before; the wake
-  // path then spends wakeCost bringing the module back before we can talk to it.
-  if (waitMs - wakeCost > 1500) goToSleep((int)((waitMs - wakeCost) / 1000));
+  // path then spends wakeCost bringing the module back, and up to a second more
+  // goes on re-anchoring the clock on the RTC before the command.
+  const int64_t anchorCost = 1200;
+  if (waitMs - wakeCost - anchorCost > 1500) {
+    goToSleep((int)((waitMs - wakeCost - anchorCost) / 1000));
+    anchorOnRtc();
+  }
   const int64_t rest = command - utcNowMs();
   if (rest > 0) delay((uint32_t)rest);
 

@@ -310,21 +310,22 @@ static void syncRtcFromGps() {
     return;
   }
 
-  // The transmit slots run on this, to the millisecond: the time in the sentence,
-  // its hundredths, and how long ago it was decoded.
-  txClockSyncGps(g, (uint32_t)gps.time.centisecond() * 10 + gps.time.age());
-
   // The date and time were decoded a moment ago; add how long ago so the
   // comparison is against the same instant.
   const uint32_t ageS = gps.time.age() / 1000;
   const DateTime gpsCorrected(g + ageS);
   const DateTime rtcNow = rtcExt.now();
   const int32_t drift = (int32_t)(rtcNow.unixtime() - gpsCorrected.unixtime());
-  if (abs(drift) <= RTC_GPS_MAX_DRIFT_S) return;
+  if (abs(drift) > RTC_GPS_MAX_DRIFT_S) {
+    rtcExt.adjust(gpsCorrected);
+    writeLogFile("RTC corrected from GPS: was " + rtcNow.timestamp() + ", now "
+                 + gpsCorrected.timestamp() + " UTC (" + String(drift) + " s off)");
+  }
 
-  rtcExt.adjust(gpsCorrected);
-  writeLogFile("RTC corrected from GPS: was " + rtcNow.timestamp() + ", now "
-               + gpsCorrected.timestamp() + " UTC (" + String(drift) + " s off)");
+  // The transmit slots run on this, to the millisecond: the time in the sentence,
+  // its hundredths, and how long ago it was decoded. After any RTC correction,
+  // because the slot clock measures UTC against the RTC's second edge.
+  txClockSyncGps(g, (uint32_t)gps.time.centisecond() * 10 + gps.time.age());
 }
 
 void gpsAcquireData(double &gpsLat, double &gpsLong, uint16_t &gpsYear, uint8_t &gpsMonth, uint8_t &gpsDay, uint8_t &gpsHour, uint8_t &gpsMinute, uint8_t &gpsSecond, uint32_t &epochTime, bool &gpsFix) {
