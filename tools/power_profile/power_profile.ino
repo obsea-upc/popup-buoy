@@ -58,8 +58,13 @@ static const char *NAMES[N_STATES + 1] = { "",
   "deep sleep, rails off", "light sleep, rails off", "CPU awake, rails off", "CPU + SD",
   "CPU + GPS searching", "CPU + sat module idle", "CPU + sat module + 1 TX", "CPU + WiFi scanning" };
 
+// Red and yellow light with the pin HIGH; the GREEN one is wired the other way
+// round (anode to 3.3 V, the firmware "switches it off" with HIGH). Found on the
+// first V2 run, 30 Sep 2026: it had been on the whole time, deep sleep included.
+static void greenLed(bool on) { digitalWrite(LED_G, on ? LOW : HIGH); }
+
 static void leds(bool r, bool y, bool g) {
-  digitalWrite(LED_R, r); digitalWrite(LED_Y, y); digitalWrite(LED_G, g);
+  digitalWrite(LED_R, r); digitalWrite(LED_Y, y); greenLed(g);
 }
 
 static void announce(int n) {
@@ -118,7 +123,7 @@ static void transmitOnce() {
 static void tickWait(uint32_t ms) {          // wait, with the green tick every 5 s
   const uint32_t t0 = millis();
   while (millis() - t0 < ms) {
-    if ((millis() - t0) % 5000 < 20) { digitalWrite(LED_G, HIGH); delay(20); digitalWrite(LED_G, LOW); }
+    if ((millis() - t0) % 5000 < 20) { greenLed(true); delay(20); greenLed(false); }
     if (gpsSerial.available()) while (gpsSerial.available()) gpsSerial.read();   // keep the port drained
     delay(5);
   }
@@ -130,6 +135,7 @@ void setup() {
   int high = 0; for (int i = 0; i < 20; i++) { high += digitalRead(DETECT_PIN); delayMicroseconds(500); }
   v2 = (high == 20);
 
+  gpio_hold_dis(GPIO_NUM_0);                 // released after the deep-sleep hold
   pinMode(LED_R, OUTPUT); pinMode(LED_Y, OUTPUT); pinMode(LED_G, OUTPUT);
   pinMode(GPS_KIM, OUTPUT); pinMode(SD_card, OUTPUT);
   if (v2) pinMode(GPS_EN_V2, OUTPUT); else pinMode(KIM_ONOFF_V1, OUTPUT);
@@ -148,6 +154,11 @@ void loop() {
   switch (state) {
     case 1:                                    // deep sleep: the board reboots into setup()
       Serial.flush();
+      // In deep sleep the pads are released, and the green LED lit through GPIO0.
+      // Hold it at its off level for the sleep (GPIO0 is an RTC pad).
+      greenLed(false);
+      gpio_hold_en(GPIO_NUM_0);
+      gpio_deep_sleep_hold_en();
       esp_sleep_enable_timer_wakeup((uint64_t)STATE_S * 1000000ULL);
       esp_deep_sleep_start();
       break;
