@@ -28,6 +28,9 @@ static char moduleID[32] = "";
 // detection and again after anything released it.
 static bool uartOpen = false;
 static bool ensureArribadaKmac();   // defined next to satModuleSendData()
+static bool immediateRetry = true;  // see satModuleSetImmediateRetry()
+
+void satModuleSetImmediateRetry(bool on) { immediateRetry = on; }
 
 static void satUartOpen() {
   if (uartOpen) return;
@@ -484,7 +487,14 @@ bool satModuleSendData(const char *hexPayload) {
         return false;
       }
 
-      if (st != OK_ARRIBADA) {
+      // With slots, the retry is left to the caller, which sends the row again on
+      // this buoy's next slot. Retried here it went out 8.5 s late, in the next
+      // buoy's slot: seen 1 Oct 2026, buoy 1 received at second 9.6 (slot 1's)
+      // twice, 2 h 19 min apart.
+      if (st != OK_ARRIBADA && !immediateRetry) {
+        writeLogFile("ARRIBADA TX_SWALLOWED (status " + String((int)st) + ") last=["
+                     + String(Arribada.last_response()) + "] - left for the next slot");
+      } else if (st != OK_ARRIBADA) {
         writeLogFile("ARRIBADA TX_SWALLOWED (status " + String((int)st) + ") last=["
                      + String(Arribada.last_response()) + "] - retrying once");
         delay(500);

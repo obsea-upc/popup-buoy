@@ -56,6 +56,11 @@ bool satModuleSetFormat(const char *format);
 // first (see the .cpp for why). Returns true when the module accepted it.
 bool satModuleSendData(const char *hexPayload);
 
+// Whether a transmission the Arribada swallowed (one in 108) is retried on the
+// spot. On by default; the transmit loop turns it off while slots are in use, so
+// the retry waits for this buoy's next slot instead of landing in another buoy's.
+void satModuleSetImmediateRetry(bool on);
+
 // Releases the UART and tri-states its pins before the module is powered down.
 // The next call that talks to the module opens it again.
 void satModuleEnd();

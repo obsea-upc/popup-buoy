@@ -316,6 +316,9 @@ static void beginCycleIfNeeded() {
 // cut the rail and bring the module back, which is the only reset available,
 // and reapply the settings it lost with its supply.
 static bool sendWithRecovery(const char *payload) {
+  // A swallowed Arribada transmission is retried by whoever called us, on the next
+  // slot - not on the spot, where it would fall in another buoy's slot.
+  satModuleSetImmediateRetry(!slotsActive());
   const bool ok = satModuleSendData(payload);
   if (ok) {
     msgErrStreak = 0;
