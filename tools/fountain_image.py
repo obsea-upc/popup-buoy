@@ -28,7 +28,14 @@ Frame (one line of the data file, hex):
                 single wrong mixture poisons everything solved with it.
   2 B BCH     : shortened BCH, t = 2, over header + symbol + CRC. Repairs 1-2 flipped bits.
   KIM1     23 B -> S = 18      (46 hex per line)
-  Arribada 24 B -> S = 19      (48 hex per line; its LDA2 frame is one byte longer, no padding)
+  Arribada 24 B -> S = 21      (48 hex per line; no BCH, see below)
+
+The Arribada frame carries no BCH (from 1 Oct 2026, after that campaign): its LDA2 link
+never handed us a frame with a flipped bit - 0 in ~635 data frames over August, 17-21 Sep
+and 1 Oct - so the 2 BCH bytes had nothing to repair and go to the image instead (+10.5 %).
+The CRC-8 stays: 0 in 635 only bounds the error rate below ~0.5 %, and one bad mixture
+would poison the solve. The manifest says which layout a file uses ("bch"); manifests
+without the key are the older files, all with BCH.
 
   uv run tools/fountain_image.py encode --photo <jpg> --out <dir> [--rows 4000]
   uv run tools/fountain_image.py decode --manifest <dir>/manifest_kim.json --cls "<glob>" --ref 216573 --out <dir>
@@ -38,7 +45,8 @@ import argparse, glob, io, json, math, os, random, sys
 import numpy as np
 from PIL import Image
 
-LAYOUT = {"kim": {"frame": 23, "sym": 18, "hexoff": 8}, "arribada": {"frame": 24, "sym": 19, "hexoff": 0}}
+LAYOUT = {"kim": {"frame": 23, "sym": 18, "hexoff": 8, "bch": True},
+          "arribada": {"frame": 24, "sym": 21, "hexoff": 0, "bch": False}}
 OBJ_THUMB, OBJ_IMAGE = 0, 1
 THUMB_EVERY = 20          # one thumbnail mixture every this many mixture rows, later on
 THUMB_REPAIR_X = 3        # thumbnail mixtures right after its sources: this many times k
@@ -219,10 +227,10 @@ def symbols_of(data: bytes, S):
     k = math.ceil(len(data) / S); pad = data + bytes(k * S - len(data))
     return [pad[i * S:(i + 1) * S] for i in range(k)]
 
-def frame_hex(obj, esi, sym):
+def frame_hex(obj, esi, sym, bch=True):
     hdr = ((obj << 14) | esi).to_bytes(2, "big")
     body = hdr + sym; body += bytes([crc8(body)])
-    return bch_encode(body).hex()
+    return (bch_encode(body) if bch else body).hex()
 
 def encode(args):
     photo = Image.open(args.photo).convert("L")
@@ -240,12 +248,12 @@ def encode(args):
         for r, (obj, esi) in enumerate(rows, start=1):
             src = th_syms if obj == OBJ_THUMB else im_syms
             sym = xor_all([src[j] for j in neighbours(obj, esi, len(src))])
-            h = frame_hex(obj, esi, sym)
+            h = frame_hex(obj, esi, sym, L["bch"])
             assert len(h) == 2 * L["frame"]
             lines.append(f"{r}:{h}")
         with open(os.path.join(args.out, f"dataFile_{mod}.txt"), "w", newline="\n") as f:
             f.write("\n".join(lines) + "\n")
-        man = {"format": "fountain-v1", "module": mod, "frame_bytes": L["frame"], "symbol_bytes": S,
+        man = {"format": "fountain-v1", "module": mod, "frame_bytes": L["frame"], "symbol_bytes": S, "bch": L["bch"],
                "rows": len(rows), "thumb_every": THUMB_EVERY, "thumb_repair": thumb_repair(kt), "dense_k": DENSE_K,
                "passes": PASSES, "early_rows": EARLY_ROWS, "early_thumb_every": EARLY_THUMB_EVERY,
                "objects": {"thumb": {"obj": OBJ_THUMB, "k": kt, "bytes": len(th_bytes), **th_meta},
@@ -301,6 +309,7 @@ def render(data, known_mask, meta, kind):
 
 def decode(args):
     man = json.load(open(args.manifest)); L = LAYOUT[man["module"]]; S = man["symbol_bytes"]
+    F, use_bch = man["frame_bytes"], man.get("bch", True)      # older manifests: all with BCH
     objs = {o["obj"]: (name, o) for name, o in man["objects"].items()}
     solvers = {o["obj"]: Solver(o["k"], S) for o in man["objects"].values()}
     msgs = []
@@ -312,11 +321,11 @@ def decode(args):
         if m["deviceMsgUid"] in seen: continue
         seen.add(m["deviceMsgUid"])
         raw = (m.get("rawData") or "").lower()[L["hexoff"]:]
-        if len(raw) < 2 * L["frame"]: continue
-        frames.append((m["msgDatetime"], bytes.fromhex(raw[:2 * L["frame"]])))
+        if len(raw) < 2 * F: continue
+        frames.append((m["msgDatetime"], bytes.fromhex(raw[:2 * F])))
     stats = {"received": len(frames), "clean": 0, "fixed": 0, "bch_fail": 0, "crc_fail": 0, "timeline": []}
     for t, fr in frames:
-        body, nfix = bch_decode(fr)
+        body, nfix = bch_decode(fr) if use_bch else (fr, 0)
         if body is None: stats["bch_fail"] += 1; continue
         if crc8(body[:-1]) != body[-1]: stats["crc_fail"] += 1; continue
         stats["clean" if nfix == 0 else "fixed"] += 1
