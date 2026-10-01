@@ -58,10 +58,10 @@ static const char *NAMES[N_STATES + 1] = { "",
   "deep sleep, rails off", "light sleep, rails off", "CPU awake, rails off", "CPU + SD",
   "CPU + GPS searching", "CPU + sat module idle", "CPU + sat module + 1 TX", "CPU + WiFi scanning" };
 
-// Red and yellow light with the pin HIGH; the GREEN one is wired the other way
-// round (anode to 3.3 V, the firmware "switches it off" with HIGH). Found on the
-// first V2 run, 30 Sep 2026: it had been on the whole time, deep sleep included.
-static void greenLed(bool on) { digitalWrite(LED_G, on ? LOW : HIGH); }
+// All three LEDs light with the pin HIGH (V2 bring-up). GPIO0 is a strapping pin
+// with a pull-up that stays on in deep sleep, so the green one glows there unless
+// the pad is held LOW (first V2 run, 30 Sep 2026: 1.19 mA in deep sleep).
+static void greenLed(bool on) { digitalWrite(LED_G, on ? HIGH : LOW); }
 
 static void leds(bool r, bool y, bool g) {
   digitalWrite(LED_R, r); digitalWrite(LED_Y, y); greenLed(g);
@@ -73,13 +73,14 @@ static void announce(int n) {
   delay(300);
 }
 
-// Everything off, and the lines that could back-feed a dead module held low
-// (the idle-high UART levels power a GPS or a KIM through their ESD clamps).
+// Everything off, and the UART TX lines left high-impedance: idle HIGH would power
+// a dead GPS or KIM through its ESD clamps, and driving them LOW lit an LED on the
+// ESP32 board in light sleep (30 Sep 2026, V2).
 static void allOff() {
   WiFi.mode(WIFI_OFF);
   SD.end();
-  gpsSerial.end(); pinMode(TX_GPS, OUTPUT); digitalWrite(TX_GPS, LOW);
-  satSerial.end(); pinMode(TX_KIM, OUTPUT); digitalWrite(TX_KIM, LOW);
+  gpsSerial.end(); pinMode(TX_GPS, INPUT);
+  satSerial.end(); pinMode(TX_KIM, INPUT);
   digitalWrite(GPS_KIM, LOW);
   digitalWrite(SD_card, LOW);
   if (v2) digitalWrite(GPS_EN_V2, LOW);
@@ -154,11 +155,11 @@ void loop() {
   switch (state) {
     case 1:                                    // deep sleep: the board reboots into setup()
       Serial.flush();
-      // In deep sleep the pads are released, and the green LED lit through GPIO0.
-      // Hold it at its off level for the sleep (GPIO0 is an RTC pad).
+      // In deep sleep the pads are released, and the green LED glowed through
+      // GPIO0's pull-up. Hold it LOW (an RTC pad: its own hold is enough; the global
+      // gpio_deep_sleep_hold_en() froze every pad too and cost ~3 mA).
       greenLed(false);
       gpio_hold_en(GPIO_NUM_0);
-      gpio_deep_sleep_hold_en();
       esp_sleep_enable_timer_wakeup((uint64_t)STATE_S * 1000000ULL);
       esp_deep_sleep_start();
       break;
