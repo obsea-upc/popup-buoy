@@ -37,7 +37,14 @@ The CRC-8 stays: 0 in 635 only bounds the error rate below ~0.5 %, and one bad m
 would poison the solve. The manifest says which layout a file uses ("bch"); manifests
 without the key are the older files, all with BCH.
 
-  uv run tools/fountain_image.py encode --photo <jpg> --out <dir> [--rows 4000]
+Format v2 (from the 8 Oct 2026 campaign, the default): the image is ONE AVIF instead of 22 JPEG strips (the same
+quality, SSIM 0.96, in 1345 B instead of 2233: -40 %), the thumbnail is an AVIF at the image's full size, and both
+objects use dense mixtures (every source in with probability 1/2, solved by Gaussian elimination): ~1 % decoding
+overhead instead of the 6-19 % of the LT degrees. Simulated: image in ~18 h instead of ~31 h on a good Arribada.
+The price: no partial image - with strips, a buoy lost half way still showed some strips; now only the thumbnail.
+The manifest records it all ("format", "dense_k", image "codec"), so v1 files still decode.
+
+  uv run tools/fountain_image.py encode --photo <jpg> --out <dir> [--rows 4000] [--image strips --mix lt  for v1]
   uv run tools/fountain_image.py decode --manifest <dir>/manifest_kim.json --cls "<glob>" --ref 216573 --out <dir>
   uv run tools/fountain_image.py simulate --manifest <dir>/manifest_kim.json --p 0.30 --txh 27
 """
@@ -222,6 +229,14 @@ def build_thumb(photo, max_bytes, scale=0.05):
     level, pre, pay, suf = best
     return pay, {"size": list(img.size), "level": level, "prefix": pre.hex(), "suffix": suf.hex()}
 
+def build_image_avif(photo, scale=0.10, level=60):
+    """v2 image: one AVIF of the whole picture, only the AV1 payload flies (the container stays in the manifest)."""
+    import imagecodecs as ic
+    img = photo.resize((round(photo.width * scale), round(photo.height * scale)), Image.LANCZOS)
+    a = np.asarray(img); rgb = np.dstack([a, a, a])
+    pre, pay, suf = avif_payload(ic.avif_encode(rgb, level=level, speed=0))
+    return pay, {"codec": "avif", "size": list(img.size), "level": level, "prefix": pre.hex(), "suffix": suf.hex()}
+
 # ---------------------------------------------------------------- encode
 def symbols_of(data: bytes, S):
     k = math.ceil(len(data) / S); pad = data + bytes(k * S - len(data))
@@ -235,9 +250,15 @@ def frame_hex(obj, esi, sym, bch=True):
 def encode(args):
     photo = Image.open(args.photo).convert("L")
     os.makedirs(args.out, exist_ok=True)
-    img_bytes, img_meta = build_image(photo)
+    global DENSE_K
+    DENSE_K = 1024 if args.mix == "dense" else 32      # recorded in the manifest; the decoder reads it back
+    if args.image == "avif":
+        img_bytes, img_meta = build_image_avif(photo, level=args.image_level)
+        th_scale = 0.10                                 # thumbnail at the image's full size: same bytes, nicer
+    else:
+        img_bytes, img_meta = build_image(photo); th_scale = 0.05
     thumb_budget = args.thumb_frames * 18        # the same thumbnail on both files
-    th_bytes, th_meta = build_thumb(photo, thumb_budget)
+    th_bytes, th_meta = build_thumb(photo, thumb_budget, scale=th_scale)
     for mod, L in LAYOUT.items():
         S = L["sym"]
         th_syms = symbols_of(th_bytes, S); im_syms = symbols_of(img_bytes, S)
@@ -253,7 +274,7 @@ def encode(args):
             lines.append(f"{r}:{h}")
         with open(os.path.join(args.out, f"dataFile_{mod}.txt"), "w", newline="\n") as f:
             f.write("\n".join(lines) + "\n")
-        man = {"format": "fountain-v1", "module": mod, "frame_bytes": L["frame"], "symbol_bytes": S, "bch": L["bch"],
+        man = {"format": "fountain-v2" if args.image == "avif" else "fountain-v1", "module": mod, "frame_bytes": L["frame"], "symbol_bytes": S, "bch": L["bch"],
                "rows": len(rows), "thumb_every": THUMB_EVERY, "thumb_repair": thumb_repair(kt), "dense_k": DENSE_K,
                "passes": PASSES, "early_rows": EARLY_ROWS, "early_thumb_every": EARLY_THUMB_EVERY,
                "objects": {"thumb": {"obj": OBJ_THUMB, "k": kt, "bytes": len(th_bytes), **th_meta},
@@ -296,6 +317,8 @@ def render(data, known_mask, meta, kind):
             return Image.fromarray(a).convert("L")
         except Exception:
             return Image.new("L", (w, h), 0)
+    if meta.get("codec") == "avif":                     # v2: one AVIF, all or nothing
+        return render(data, known_mask, meta, "thumb")
     w, h = meta["size"]; canvas = Image.new("L", (w, h), 0)
     for s in meta["strips"]:
         a, b = s["offset"], s["offset"] + s["len"]
@@ -310,6 +333,8 @@ def render(data, known_mask, meta, kind):
 def decode(args):
     man = json.load(open(args.manifest)); L = LAYOUT[man["module"]]; S = man["symbol_bytes"]
     F, use_bch = man["frame_bytes"], man.get("bch", True)      # older manifests: all with BCH
+    global DENSE_K
+    DENSE_K = man.get("dense_k", 32)                           # the mixture rule the file was built with
     objs = {o["obj"]: (name, o) for name, o in man["objects"].items()}
     solvers = {o["obj"]: Solver(o["k"], S) for o in man["objects"].values()}
     msgs = []
@@ -344,7 +369,10 @@ def decode(args):
         render(data, mask, o, "thumb" if name == "thumb" else "image").save(os.path.join(args.out, f"{args.name}_{name}.png"))
         stats[name] = {"k": k, "known": len(kn)}
         if name == "image":
-            stats[name]["strips"] = sum(all(mask[s["offset"]:s["offset"] + s["len"]]) for s in o["strips"])
+            if "strips" in o:
+                stats[name]["strips"] = sum(all(mask[s["offset"]:s["offset"] + s["len"]]) for s in o["strips"])
+            else:                                   # v2: one AVIF, complete or not
+                stats[name]["complete"] = all(mask)
     json.dump(stats, open(os.path.join(args.out, f"{args.name}_stats.json"), "w"), indent=1)
     print(json.dumps({k: v for k, v in stats.items() if k != "timeline"}))
 
@@ -353,6 +381,8 @@ def simulate(args):
     """Hours to thumbnail, to the systematic pass, to the full image, if each row arrives
     usable with probability p at txh rows per hour. Uses the real file order and code."""
     man = json.load(open(args.manifest)); S = man["symbol_bytes"]
+    global DENSE_K
+    DENSE_K = man.get("dense_k", 32)
     kt, km = man["objects"]["thumb"]["k"], man["objects"]["image"]["k"]
     order = file_order(kt, km, man["rows"])
     rng = random.Random(1); res = {"thumb": [], "half": [], "full": [], "repeat_half": [], "repeat_full": []}
@@ -399,6 +429,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); sub = ap.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("encode"); e.add_argument("--photo", required=True); e.add_argument("--out", required=True)
     e.add_argument("--rows", type=int, default=4000); e.add_argument("--thumb-frames", type=int, default=11)
+    e.add_argument("--image", choices=("avif", "strips"), default="avif"); e.add_argument("--mix", choices=("dense", "lt"), default="dense")
+    e.add_argument("--image-level", type=int, default=60)
     d = sub.add_parser("decode"); d.add_argument("--manifest", required=True); d.add_argument("--cls", required=True)
     d.add_argument("--ref", required=True); d.add_argument("--out", required=True); d.add_argument("--name", default="buoy")
     s = sub.add_parser("simulate"); s.add_argument("--manifest", required=True); s.add_argument("--p", type=float, required=True)
