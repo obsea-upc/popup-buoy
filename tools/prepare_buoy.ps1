@@ -57,9 +57,10 @@ param(
   [ValidateSet('', 'kim', 'arribada')][string]$Module = ''
 )
 
-# Satellite module per buoy, 1 Oct 2026: Arribadas on 1, 2 and 4; KIM1 on the rest.
-$moduleTable = @{ 1 = 'arribada'; 2 = 'arribada'; 4 = 'arribada' }
-if (-not $Module) { $Module = if ($moduleTable.ContainsKey($Buoy)) { $moduleTable[$Buoy] } else { 'kim' } }
+# Satellite module per buoy. From the 8 Oct 2026 campaign the KIM1 is parked and
+# every buoy flies an Arribada; -Module kim still works for a bench test.
+$moduleTable = @{}
+if (-not $Module) { $Module = if ($moduleTable.ContainsKey($Buoy)) { $moduleTable[$Buoy] } else { 'arribada' } }
 
 # Fleet slot table (see "Transmit slots" in conf.h): six slots of 5 s in the 30 s
 # cycle. 3 and 6 share the last one: do not deploy them together.

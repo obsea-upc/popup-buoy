@@ -391,26 +391,24 @@ bool satModuleSetFormat(const char *format) {
   }
 }
 
-// Makes sure the Arribada has its MAC profile before it is asked to transmit,
-// reading it first and writing it only when it is wrong. The Oct 2025 build
-// loses it at every power cut; newer builds reload it at boot, and on those the
-// write is now skipped. Arribada confirmed on 23 Sep 2026 that AT+KMAC never
-// writes flash, so the old write-every-time was harmless - this is about not
-// sending commands that do nothing, and about knowing from the log which
-// modules still forget it: the first rewrite of each wake is logged.
-static bool kmacRewriteLogged = false;
+// Makes sure the Arribada has its MAC profile before it is asked to transmit, by
+// writing it - never reading it first. The Oct 2025 build loses it at every power
+// cut, so it has to go before every transmission, and Arribada confirmed on 23 Sep
+// 2026 that AT+KMAC never writes flash, so writing every time is harmless.
+//
+// Reading it first (4615bda, 1 Oct 2026 campaign) was a costly mistake: the
+// d725755 build's answer to AT+KMAC=? is not recognised, the read waited out the
+// library's 30 s default timeout before every transmission, each send took 39-40 s
+// instead of 9 s, and the Arribadas lost every other slot - half the messages.
+// The write alone is what the 24-28 Sep firmware did, at 30 s spacing.
+static bool kmacErrLogged = false;
 
 static bool ensureArribadaKmac() {
-  const int profile = Arribada.get_KMAC();
-  if (profile == ARRIBADA_KMAC_PROFILE) return true;
   const bool ok = Arribada.set_KMAC() == OK_ARRIBADA;
-  if (!ok) {
-    writeLogFile("ARRIBADA KMAC_ERR read=" + String(profile) + " last=["
-                 + String(Arribada.last_response()) + "] - transmission will be refused");
-  } else if (!kmacRewriteLogged) {
-    writeLogFile("ARRIBADA KMAC was " + String(profile) + ", set to "
-                 + String(ARRIBADA_KMAC_PROFILE) + " (logged once per wake)");
-    kmacRewriteLogged = true;
+  if (!ok && !kmacErrLogged) {
+    writeLogFile("ARRIBADA KMAC_ERR last=[" + String(Arribada.last_response())
+                 + "] - transmission may be refused (logged once per wake)");
+    kmacErrLogged = true;
   }
   return ok;
 }

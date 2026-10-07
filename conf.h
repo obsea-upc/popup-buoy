@@ -323,13 +323,15 @@ inline const char* stateName(int s) {
 // The command has to go out before the emission by the module's own latency,
 // measured 24-28 Sep as the time from the "Sending" line to the satellite's
 // reception timestamp: KIM1 5.9 s (p5-p95 5.2-6.7), Arribada 3.0 s (2.5-4.0).
-// Arribada lowered to 2.0 s after 1 Oct 2026, the first run with slots: buoy 1's
-// receptions landed at second ~1.0 of its slot, 1.5 s before the 2.5 aimed at
-// (buoy 4 ~0.5 s early). At 2.0 s both land inside their slot, near its centre.
+// On 1-6 Oct 2026 the Arribadas landed ~1-1.5 s early in their slot. That was not
+// the latency: a 30 s KMAC read before every send moved each emission one whole
+// cycle later, minus ~1 s. With the read gone (sat_module.cpp) the measured 3.0 s
+// applies again. Check it on the bench before deploying: the "Sending" log lines
+// must come 30 s apart, and CLS receptions near second slot*5 + 2.5.
 #define TX_SLOT_WIDTH_MS 5000
 #define TX_SLOT_COUNT 6
 #define TX_LATENCY_KIM_MS 5900
-#define TX_LATENCY_ARRIBADA_MS 2000
+#define TX_LATENCY_ARRIBADA_MS 3000
 // Time needed between deciding to wait for a slot and giving the command, so a
 // slot is never chosen that is already too close to be reached.
 #define TX_SLOT_MARGIN_MS 1500

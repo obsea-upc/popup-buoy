@@ -251,7 +251,9 @@ RetStatusARRIBADATypeDef ARRIBADA::set_KMAC(uint8_t profile) {
 }
 
 int ARRIBADA::get_KMAC() {
-  if (send_ATCommand("AT+KMAC=?", "+KMAC=") != OK_ARRIBADA) return -1;
+  // Short timeout: with the library default (30 s) an unrecognised answer cost 30 s
+  // per call, which is what halved the Arribadas' transmissions on 1-6 Oct 2026.
+  if (send_ATCommand("AT+KMAC=?", "+KMAC=", 2000) != OK_ARRIBADA) return -1;
   const char *p = strstr(response, "+KMAC=");
   if (p == nullptr || !isdigit((unsigned char)p[6])) return -1;
   return atoi(p + 6);
