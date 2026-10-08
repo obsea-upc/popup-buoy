@@ -38,11 +38,12 @@ inline const char* stateName(int s) {
 
 ////----- OPTIONAL FEATURES
 
-//#define FRM_USV_UPLOAD  // In Fast Recovery Mode, look for the BlueBoat's WiFi on every cycle and,
+#define FRM_USV_UPLOAD    // In Fast Recovery Mode, look for the BlueBoat's WiFi after every GPS message and,
                           // if the USV is in range, hand it the SD data over FTP and stay in FRM
-                          // instead of dropping to DM. Currently OFF: in FRM the buoy should only
-                          // acquire a GPS fix and transmit it. Uncomment to bring the USV rendezvous
-                          // back; the code it guards lives in the ST_FRM case and in usv_upload.*
+                          // instead of dropping to DM. Each search with no USV around costs up to
+                          // MAX_WIFI_TIMEOUT (conf.txt, 30 s) per FRM cycle. Comment it out to have
+                          // FRM only acquire a GPS fix and transmit it; the code it guards lives in
+                          // the ST_FRM case and in usv_upload.*
 
 ///------ OPTIONS TO DEBUG
 //#define GPS_DEBUG_NMEA_GSA  // GPS diagnostics, kept for future use: echoes raw NMEA (GSA/PCAS/TXT),
